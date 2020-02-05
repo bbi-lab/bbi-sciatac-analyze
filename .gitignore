@@ -1,0 +1,8 @@
+NOTES
+NOTES.testing
+.~lock.file_map.docx#
+.project
+src/hide
+src/pypy_env
+src/python_env
+src/__pycache__/
