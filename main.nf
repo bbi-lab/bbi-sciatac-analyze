@@ -1796,11 +1796,11 @@ def reportRunParams( params ) {
 	/*
 	** Let the operator review and accept or reject the run at this point.
 	** This might be irritating to the operator. If so, comment it out.
+    */
 	def answer = System.console().readLine 'Do you want to continue ([n]/y)? '
 	if( answer != 'y' ) {
 		System.exit( 0 )
 	}
-	*/
 }
 
 
