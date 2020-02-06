@@ -1,5 +1,4 @@
 decorator==4.4.0
-drmaa==0.7.9
 fmt==0.3.1
 future==0.17.1
 h5py==2.9.0

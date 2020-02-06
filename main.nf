@@ -158,14 +158,12 @@
 **     variables to store these string literals: I am not certain that it can work.
 **
 ** Tasks:
-**   o  clean repositories
 **   o  work on src/summarize_cell_calls.R and generate_cistopic_model.R to
 **      remove dependencies on specific genome versions
 **   o  add/update genomes
 **   o  add dashboards/statistics
 **   o  add plots for Cailyn
 **   o  compact functions where possible
-**   o  build for new Shendure processors
 **   o  write program for aggregating runs
 **   o  add in remaining downstream processes
 **   o  consider using string variables for filenames
@@ -173,13 +171,15 @@
 **   o  write JSON args.json file (perhaps write a sample-specific JSON file to each sample directory) (done)
 **   o  fix reads_threshold in call_cells process (done)
 **   o  store files in sub-directories (done)
+**   o  build for new Shendure processors (no benefit)
+**   o  clean repositories (done for now)
 **
 ** Check:
 **   o  check various global variable values such as flanking_distance*
 **   o  check with all condition (parameters and genome files and ...) combinations
 **   o  compare each process block to each easygrid pipeline block
 **   o  compare outputs to those from Andrew's pipeline (done, for now)
-**   o  run on BBI multi-sample run
+**   o  run on BBI multi-sample run (done)
 **   o  check for 'defs' where required (done, for now)
 **   o  check booleans: e.g.,
 **        isBarnyard: summarizeCellCallsSetupTestBarnyard
@@ -191,6 +191,7 @@
 **   o  check conditional code blocks
 **   o  test run aggregation
 **   o  check makePromoterSumIntervalsProcess
+**   o  consider using mode flatten in outputs and modifying groovy functions accordingly
 */
 
 import groovy.json.JsonOutput
@@ -240,6 +241,10 @@ params.calculate_banding_scores = null
 params.topic_models = null
 params.topics = null
 
+
+/*
+** Various internal parameters.
+*/
 
 /*
 ** MakeWindowedGenomeIntervals parameter.
@@ -381,10 +386,6 @@ writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename )
 
 /*
 ** Sort TSS bed files of required genomes.
-**
-** Make an input channel to sort TSS files and store them in the 'precheck' directory.
-** Make a channel with TSS bed file for each required genome. The sorted
-** TSS bed file has a name like '<genome_name>.tss_file.sorted.bed.gz'.
 */
 Channel
 	.fromList( sortTssBedChannelSetup( sampleSortedNames, sampleGenomeMap, genomesJson ) )
@@ -413,11 +414,6 @@ sortTssBedOutChannel
 
 /*
 ** Sort chromosome size files of required genomes.
-**
-** Make an input channel to sort chromosome sizes files and store them in the
-** 'precheck' directory.
-** Make a channel with a chromosome sizes file for each required genome. The sorted
-** chromosome sizes file has a name like '<genome_name>.chromosome_sizes.sorted.txt'.
 */
 Channel
 	.fromList( sortChromosomeSizeChannelSetup( sampleSortedNames, sampleGenomeMap, genomesJson ) )
@@ -455,23 +451,6 @@ sortChromosomeSizeOutChannel
 
 /*
 ** Run alignments.
-** Notes:
-**   o  set up a channel with pairs of fastq files by sample and lane
-**   o  move/copy each sample's trimmed fastqs to sample's processing directory
-**   o  align each lane's pair of fastqs
-**
-** Make a channel with maps of values required for alignments.
-** Notes:
-**   o  I use Groovy code to set up the alignment processes because
-**        o  I can infer the required input information
-**        o  each process requires
-**             o  two fastq files (paired end reads)
-**             o  genome index path
-**             o  white list region file
-**             o  output bam file name
-**  o  specifying the required files based on the sample sheet (sample name)
-**     and Illumina run info (number of lanes) allows us to check for the
-**     files.
 */
 Channel
 	.fromList( runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) )
@@ -615,8 +594,6 @@ getUniqueFragmentsOutChannelTranspositionSites
 
 /*
 ** Merge alignment bam files.
-** Notes:
-**   o  I hard-coded the out_dir (call_peaks) in the output statement...yuck.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy01
 	.toList()
@@ -759,8 +736,6 @@ process makeWindowedGenomeIntervalsProcess {
 ** Make promoter sum intervals.
 ** Notes:
 **   o  the gene intervals is defined using one of two sources (files)
-**   o  copy the source file to the publish dir and a note describing the file
-**      (add these to this script)
 */
 mergePeaksOutChannelCopy01
     .toList()
@@ -819,19 +794,6 @@ process makePromoterSumIntervalsProcess {
 
 /*
 ** Get peak counts in merged peak regions.
-** Notes:
-**   o  compare Andrew's files and our NextFlow Channels
-** per sample analysis 1
-** --input
-**     {regions}                  merged_peaks                mergePeaksOutChannelCopy02
-**     {chromosome_sizes}         chromosome_sizes_file       sortChromosomeSizeOutChannel
-**     {transposition_sites_bed}  transposition_sites_file    getUniqueFragmentsOutChannelTranspositionSitesCopy02
-** --output
-**     {count_table}
-**  o  it is possible to combine the input channels into one and
-**     sort the files into tuple elements in the flatMap-called
-**     function but keeping the input channels separate may be
-**     easier to manage when maintaining.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy02
     .toList()
@@ -886,19 +848,6 @@ process makeMergedPeakRegionCountsProcess {
 
 /*
 ** Get peak counts in TSS regions.
-** Notes:
-**   o  compare Andrew's files and our NextFlow Channels
-** per sample analysis 1
-** --input
-**     {regions}                  tss_file                    sortTssBedOutChannelCopy01
-**     {chromosome_sizes}         chromosome_sizes_file       sortChromosomeSizeOutChannelCopy03
-**     {transposition_sites_bed}  transposition_sites_file    getUniqueFragmentsOutChannelTranspositionSitesCopy03
-** --output
-**     {tss_counts}
-**  o  it is possible to combine the input channels into one and
-**     sort the files into tuple elements in the flatMap-called
-**     function but keeping the input channels separate may be
-**     easier to manage when maintaining.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy03
     .toList()
@@ -962,8 +911,6 @@ process makeTssRegionCountsProcess {
 
 /*
 ** Make count reports.
-** per sample analysis 3
-**
 */
 getUniqueFragmentsOutChannelDuplicateReport
     .toList()
@@ -1014,8 +961,6 @@ makeCountReportsOutChannel
 
 /*
 ** Get cell calls.
-** per sample analysis 4
-**
 */
 
 makeCountReportsOutChannelCopy01
@@ -1070,7 +1015,6 @@ callCellsOutChannelCalledCellsWhitelist
 
 /*
 ** Get per base coverage TSS region coverage
-** per sample analysis 5
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy04
     .toList()
@@ -1130,7 +1074,6 @@ process getPerBaseCoverageTssProcess {
 
 /*
 ** Make peak matrix.
-** per sample analysis 8
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy05
     .toList()
@@ -1180,7 +1123,6 @@ process makePeakMatrixProcess {
 
 /*
 ** Make window matrix.
-** per sample analysis 9
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy06
     .toList()
@@ -1229,7 +1171,6 @@ process makeWindowMatrixProcess {
 
 /*
 ** Make promoter matrix.
-** per sample analysis 10
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy07
     .toList()
@@ -1383,7 +1324,6 @@ process summarizeCellCallsProcess {
 
 /*
 ** Get per cell insert sizes (optional).
-** per sample analysis 6
 **
 process getPerCellInsertSizesProcess {
     cache 'lenient'
@@ -1430,7 +1370,6 @@ process getPerCellInsertSizesProcess {
 
 /*
 ** Get banding scores (optional)..
-** per sample analysis 7
 **
 process getBandingScoresProcess {
     cache 'lenient'
@@ -1952,11 +1891,11 @@ def checkFastqs( params, sampleLaneMap ) {
 	samples.each { aSample ->
 		def lanes = sampleLaneMap[aSample]
 		lanes.each { aLane ->
-			fileName = dirName + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+			fileName = dirName + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
 			fileHandle = new File( fileName )
 			assert fileHandle.exists() : "unable to find fasta file ${fileName}"
 			assert fileHandle.canRead() : "unable to find fasta file ${fileName}"
-			fileName = dirName + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+			fileName = dirName + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
 			fileHandle = new File( fileName )
 			assert fileHandle.exists() : "unable to find fasta file ${fileName}"
 			assert fileHandle.canRead() : "unable to find fasta file ${fileName}"
@@ -2191,8 +2130,8 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 	samples.each { aSample ->
 		def lanes = sampleLaneMap[aSample]
 		lanes.each { aLane ->
-			def fastq1       = demuxDir + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
-			def fastq2       = demuxDir + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+			def fastq1       = demuxDir + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+			def fastq2       = demuxDir + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
 			def theRun       = aLane.split( '_' )[0]
 			def genome       = argsJson[theRun]['genomes'][aSample]
 			def genome_index = genomesJson[genome]['bowtie_index']
@@ -2394,7 +2333,6 @@ def getUniqueFragmentsChannelSetup( inPaths, sampleSortedNames ) {
 def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 	/*
 	** Check for expected bed.gz files.
-	** Maybe check for tbi files too?
 	*/
 	def filesExpected = []
 	def samples = sampleLaneMap.keySet()
@@ -2402,6 +2340,10 @@ def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 		def fileName = aSample + '-transposition_sites.bed.gz'
 		filesExpected.add( fileName )
 	}
+    samples.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz.tbi'
+        filesExpected.add( fileName )
+    }
 	def filesFound = []
 	inPaths.each { aPathPair ->
 		aPathPair.each { aPath ->
@@ -2679,11 +2621,14 @@ def makePromoterSumIntervalsChannelSetup( inPaths, sampleSortedNames, sampleGeno
 def makeMergedPeakRegionCountsChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
     /*
     ** Check for expected bed files.
-    ** Maybe check for tbi files too?
     */
     def filesExpected = []
     sampleSortedNames.each { aSample ->
         def fileName = aSample + '-transposition_sites.bed.gz'
+        filesExpected.add( fileName )
+    }
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz.tbi'
         filesExpected.add( fileName )
     }
     def filesFound = []
@@ -2839,11 +2784,14 @@ def makeMergedPeakRegionCountsChannelSetupChromosomeSizes( inPaths, sampleSorted
 def makeTssRegionCountsChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
     /*
     ** Check for expected bed.gz files.
-    ** Maybe check for tbi files too?
     */
     def filesExpected = []
     sampleSortedNames.each { aSample ->
         def fileName = aSample + '-transposition_sites.bed.gz'
+        filesExpected.add( fileName )
+    }
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz.tbi'
         filesExpected.add( fileName )
     }
     def filesFound = []
@@ -3187,11 +3135,14 @@ def callCellsChannelSetup( inPaths, sampleSortedNames ) {
 def getPerBaseCoverageTssChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
     /*
     ** Check for expected bed.gz files.
-    ** Maybe check for tbi files too?
     */
     def filesExpected = []
     sampleSortedNames.each { aSample ->
         def fileName = aSample + '-transposition_sites.bed.gz'
+        filesExpected.add( fileName )
+    }
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz.tbi'
         filesExpected.add( fileName )
     }
     def filesFound = []
@@ -3339,11 +3290,14 @@ def getPerBaseCoverageTssChannelSetupChromosomeSizes( inPaths, sampleSortedNames
 def makePeakMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
     /*
     ** Check for expected bed.gz files.
-    ** Maybe check for tbi files too?
     */
     def filesExpected = []
     sampleSortedNames.each { aSample ->
         def fileName = aSample + '-transposition_sites.bed.gz'
+        filesExpected.add( fileName )
+    }
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz.tbi'
         filesExpected.add( fileName )
     }
     def filesFound = []
@@ -3480,11 +3434,14 @@ def makePeakMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
 def makeWindowMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
     /*
     ** Check for expected bed.gz files.
-    ** Maybe check for tbi files too?
     */
     def filesExpected = []
     sampleSortedNames.each { aSample ->
         def fileName = aSample + '-transposition_sites.bed.gz'
+        filesExpected.add( fileName )
+    }
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz.tbi'
         filesExpected.add( fileName )
     }
     def filesFound = []
@@ -3622,11 +3579,14 @@ def makeWindowMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
 def makePromoterMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
     /*
     ** Check for expected bed.gz files.
-    ** Maybe check for tbi files too?
     */
     def filesExpected = []
     sampleSortedNames.each { aSample ->
         def fileName = aSample + '-transposition_sites.bed.gz'
+        filesExpected.add( fileName )
+    }
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz.tbi'
         filesExpected.add( fileName )
     }
     def filesFound = []
@@ -4032,15 +3992,15 @@ def summarizeCellCallsSetupWindowMatrix( inPaths, sampleSortedNames ) {
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
+    inPaths.each { aPathSet ->
+        aPathSet.each { aPath ->
             def aFile = aPath.getFileName().toString()
             def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /window_matrix.mtx.gz$/ ) {
+            if( aFile =~ /window_matrix[.]mtx[.]gz$/ ) {
                 pathMap[aSample]['mtx'] = aPath
-            } else if( aFile =~ /window_matrix.rows.txt$/ ) {
+            } else if( aFile =~ /window_matrix[.]rows[.]txt$/ ) {
                 pathMap[aSample]['row'] = aPath
-            } else if( aFile =~ /window_matrix.columns.txt$/ ) {
+            } else if( aFile =~ /window_matrix[.]columns[.]txt$/ ) {
                 pathMap[aSample]['col'] = aPath
             } else {
                 println "Warning: makePromoterMatrixChannelSetupTranspositionSites: unexpected file \'${fileName}\'"

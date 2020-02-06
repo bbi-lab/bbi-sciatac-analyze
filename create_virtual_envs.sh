@@ -30,11 +30,11 @@ source $DIR/src/pypy_env/bin/activate
 
 pip install -r $DIR/pypy_requirements.txt
 
-git clone https://github.com/andrewhill157/barcodeutils.git
+# git clone https://github.com/andrewhill157/barcodeutils.git
 
-cd barcodeutils
+pushd barcodeutils
 pypy setup.py install
-cd ..
+popd
 
 deactivate
 
@@ -61,10 +61,10 @@ source $DIR/src/python_env/bin/activate
 
 pip install -r $DIR/python_requirements.txt
 
-git clone https://github.com/andrewhill157/barcodeutils.git
+# git clone https://github.com/andrewhill157/barcodeutils.git
 
-cd barcodeutils
+pushd barcodeutils
 python setup.py install
-cd ..
+popd
 
 deactivate
