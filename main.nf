@@ -44,7 +44,7 @@
 **      the problematic variable and its location in the code, which complicates
 **      greatly finding the error. As an example, which confused me greatly, is
 **
-**          bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b {flanking_distance_per_base_tss_region}  \
+**          bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b {perBaseCoverageTss.flanking_distance}  \
 **          | bedtools coverage -sorted -d -a stdin -b ${inTranspositionSites} \
 **          | awk '{{ if (\$8 > 0) print \$0 }}' \
 **          | gzip > \${TEMP_OUTPUT_FILE}
@@ -180,9 +180,6 @@
 ** Tasks:
 **   o  work on src/summarize_cell_calls.R and generate_cistopic_model.R to
 **      remove dependencies on specific genome versions
-**   o  consider organizing parameters used in specific processing blocks
-**      using scopes () labeled with the processing block function. For example,
-**      align_reads.seed for the bowtie seed parameter.
 **   o  add/update genomes
 **   o  add dashboards/statistics
 **   o  add plots for Cailyn
@@ -248,7 +245,7 @@ def onError = { return( "retry" ) }
 */
 
 /*
-** Initial pre-defined, required parameter values.
+** Initial pre-defined, required run-specific, command-line parameter values.
 */
 params.help = false
 params.max_cores = 16
@@ -266,48 +263,125 @@ params.topics = null
 
 
 /*
-** Various internal parameters.
+** Various internal parameters organized as classes.
 */
 
 /*
-** MakeWindowedGenomeIntervals parameter.
+** Define the required classes.
 */
-def genomicIntervalWindowSize = 5000
+class Global {
+    public int max_cores
+    public int memory
+}
+global = new Global()
+
+class AlignReads {
+    public int max_cores
+    public int total_memory
+    public int memory
+    public int seed
+}
+alignReads = new AlignReads()
+
+class BandingScores {
+    public int max_cores
+    public int memory
+}
+bandingScores = new BandingScores()
+
+class CallMotifs {
+    public int max_cores
+    public int memory
+}
+callMotifs = new CallMotifs()
+
+class CisTopicModels {
+    public int max_cores
+    public int memory
+}
+cisTopicModels = new CisTopicModels()
+
+class MergedPeakRegionCounts {
+    public int flanking_distance
+}
+mergedPeakRegionCounts =  new MergedPeakRegionCounts()
+
+class MotifMatrix {
+    public int max_cores
+    public int memory
+}
+motifMatrix = new MotifMatrix()
+
+class PerBaseCoverageTss {
+    public int flanking_distance
+}
+perBaseCoverageTss = new PerBaseCoverageTss()
+
+class PromoterSumInterval {
+    public int proximalUpstream
+    public int proximalDownstream
+    public int peakToTssDistanceThreshold
+}
+promoterSumInterval = new PromoterSumInterval()
+
+class ReducedDimensionMatrix {
+    public int max_cores
+    public int memory
+}
+reducedDimensionMatrix = new ReducedDimensionMatrix()
+
+class TssRegionCounts {
+    public int max_cores
+    public int memory
+    public int flanking_distance
+}
+tssRegionCounts = new TssRegionCounts()
+
+class WindowGenomeIntervals {
+    public int genomicIntervalWindowSize
+}
+windowGenomeIntervals = new WindowGenomeIntervals()
 
 /*
-** MakePromoterSumIntervals parameters.
+** Global variables.
 */
-def proximalUpstream = 1000
-def proximalDownstream = 500
-def peakToTssDistanceThreshold = 30000
+global.max_cores = params.max_cores
+global.memory = 36
 
 /*
-** RunAlign parameters.
+** Process block-specific variables (using 'classes').
 */
-def max_cores_align = params.max_cores
-def total_memory_align = 36 + 0.25 * max_cores_align
-def memory_align = total_memory_align / max_cores_align
+alignReads.max_cores = global.max_cores
+alignReads.total_memory = 36 + 0.25 * alignReads.max_cores
+alignReads.memory = alignReads.total_memory / alignReads.max_cores
+alignReads.seed = params.bowtie_seed
 
-/*
-** makeMergedPeakRegionCountsProcess parameters.
-** Notes:
-**   o  double check this value
-*/
-def flanking_distance_merged_peaks_regions = 0
+bandingScores.max_cores = global.max_cores
+bandingScores.memory = global.memory
 
-/*
-** makeTssRegionCountsProcess parameters.
-** Notes:
-**   o  double check this value
-*/
-def flanking_distance_tss_regions = 1000
+callMotifs.max_cores = global.max_cores
+callMotifs.memory = global.memory
 
-/*
-**getPerBaseCoverageTssProcess parameters.
-** Notes:
-**   o  double check this value
-*/
-def flanking_distance_per_base_tss_region = 1000
+motifMatrix.max_cores = global.max_cores
+motifMatrix.memory = global.memory
+
+reducedDimensionMatrix.max_cores = global.max_cores
+reducedDimensionMatrix.memory = global.memory
+
+cisTopicModels.max_cores = global.max_cores
+cisTopicModels.memory = global.memory
+
+windowGenomeIntervals.genomicIntervalWindowSize = 5000
+
+promoterSumInterval.proximalUpstream = 1000
+promoterSumInterval.proximalDownstream = 500
+promoterSumInterval.peakToTssDistanceThreshold = 30000
+
+mergedPeakRegionCounts.flanking_distance = 0
+
+tssRegionCounts.flanking_distance = 1000
+
+perBaseCoverageTss.flanking_distance = 1000
 
 /*
 ** Print usage when run with --help parameter.
@@ -423,7 +497,7 @@ process sortTssBedProcess {
 	val tssBedMap from sortTssBedInChannel
 	
 	output:
-	file("${tssBedMap['outBed']}") into sortTssBedOutChannel
+	file( "${tssBedMap['outBed']}" ) into sortTssBedOutChannel
 	
 	script:
 	"""
@@ -448,10 +522,10 @@ process sortChromosomeSizeProcess {
 	publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.txt", mode: 'copy'
 	
 	input:
-		val chromosomeSizeMap from sortChromosomeSizeInChannel
+	val chromosomeSizeMap from sortChromosomeSizeInChannel
 	
 	output:
-		file("${chromosomeSizeMap['outTxt']}") into sortChromosomeSizeOutChannel
+	file( "${chromosomeSizeMap['outTxt']}" ) into sortChromosomeSizeOutChannel
 	
 	script:
 	"""
@@ -483,25 +557,25 @@ process runAlignProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus max_cores_align
-	memory "${memory_align}G"
+	cpus alignReads.max_cores
+	memory "${alignReads.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bowtie2/2.2.3:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
  
 	input:
-		val alignMap from runAlignInChannel
+	val alignMap from runAlignInChannel
 
 	output:
-		file("*.bam") into runAlignOutChannel
+	file( "*.bam" ) into runAlignOutChannel
 
 	script:
 	"""
 	bowtie2 -3 1 \
 		-X 2000 \
-		-p ${max_cores_align} \
+		-p ${alignReads.max_cores} \
 		-x ${alignMap['genome_index']} \
 		-1 ${alignMap['fastq1']} \
-		-2 ${alignMap['fastq2']} ${alignMap['bowtieSeed']} \
+		-2 ${alignMap['fastq2']} ${alignMap['seed']} \
 		| samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > ${alignMap['bamfile']}.tmp.bam
         samtools sort -T ${alignMap['bamfile']}.sorttemp --threads 4 ${alignMap['bamfile']}.tmp.bam -o ${alignMap['bamfile']}
         rm ${alignMap['bamfile']}.tmp.bam
@@ -528,10 +602,10 @@ process mergeBamsProcess {
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bai", mode: 'copy'
 
 	input:
-		set file(inBams), outBam from mergeBamsInChannel
+	set file( inBams ), outBam from mergeBamsInChannel
 
 	output:
-		file("*") into mergeBamsOutChannelBam
+	file( "*" ) into mergeBamsOutChannelBam
 	
 	script:
 	"""
@@ -548,6 +622,7 @@ process mergeBamsProcess {
 */
 
 mergeBamsOutChannelBam
+    .flatten()
 	.toList()
 	.flatMap { getUniqueFragmentsChannelSetup( it, sampleSortedNames ) }
 	.set { getUniqueFragmentsInChannel }
@@ -564,13 +639,13 @@ process getUniqueFragmentsProcess {
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-duplicate_report.txt", mode: 'copy'
     
 	input:
-		set file(inBam), file(inBai), uniqueFragmentsMap from getUniqueFragmentsInChannel
+	set file( inBam ), file(inBai), uniqueFragmentsMap from getUniqueFragmentsInChannel
 		
 	output:
-		file("*-transposition_sites.bed.gz*") into getUniqueFragmentsOutChannelTranspositionSites  // get both -transposition_sites.bed.gz and -transposition_sites.bed.gz.tbi files
-		file("*-fragments.txt.gz*") into getUniqueFragmentOutChannelFragments  // get both -fragments.txt.gz and -fragments.txt.gz.tbi files
-		file("*-insert_sizes.txt") into getUniqueFragmentsOutChannelInsertSizeDistribution
-		file("*-duplicate_report.txt") into getUniqueFragmentsOutChannelDuplicateReport
+	file( "*-transposition_sites.bed.gz*" ) into getUniqueFragmentsOutChannelTranspositionSites  // get both -transposition_sites.bed.gz and -transposition_sites.bed.gz.tbi files
+	file( "*-fragments.txt.gz*" ) into getUniqueFragmentOutChannelFragments  // get both -fragments.txt.gz and -fragments.txt.gz.tbi files
+	file( "*-insert_sizes.txt" ) into getUniqueFragmentsOutChannelInsertSizeDistribution
+	file( "*-duplicate_report.txt" ) into getUniqueFragmentsOutChannelDuplicateReport
 		
 	script:
 	"""
@@ -619,6 +694,7 @@ getUniqueFragmentsOutChannelTranspositionSites
 ** Merge alignment bam files.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy01
+    .flatten()
 	.toList()
 	.flatMap { callPeaksChannelSetup( it, sampleLaneMap, sampleGenomeMap ) }
 	.set { callPeaksInChannel }
@@ -633,12 +709,12 @@ process callPeaksProcess {
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-summits.bed", mode: 'copy'
 
 	input:
-	set file(inBed), file(inTbi), callPeaksMap from callPeaksInChannel
+	set file( inBed ), file(inTbi), callPeaksMap from callPeaksInChannel
 
 	output:
-	file("*-peaks.narrowPeak.gz") into callPeaksOutChannelNarrowPeak
-    file("*-peaks.xls") into callPeaksOutChannelPeaksDeadend1
-    file("*-summits.bed") into callPeaksOutChannelDeadend2
+	file( "*-peaks.narrowPeak.gz" ) into callPeaksOutChannelNarrowPeak
+    file( "*-peaks.xls" ) into callPeaksOutChannelPeaksDeadend1
+    file( "*-summits.bed" ) into callPeaksOutChannelDeadend2
 	
     script:
 	"""
@@ -696,10 +772,10 @@ process mergePeaksProcess {
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
 
 	input:
-		set file(inBed), mergePeaksMap from mergePeaksInChannel
+	set file( inBed ), mergePeaksMap from mergePeaksInChannel
 			
 	output:
-		file("*-merged_peaks.bed") into mergePeaksOutChannel
+	file( "*-merged_peaks.bed" ) into mergePeaksOutChannel
 			
 	script:
 	"""
@@ -729,7 +805,10 @@ mergePeaksOutChannel
 */
 sortChromosomeSizeOutChannelCopy01
     .toList()
-    .flatMap { makeWindowedGenomeIntervalsChannelSetup( it, sampleSortedNames, sampleGenomeMap, genomicIntervalWindowSize ) }
+    .flatMap { makeWindowedGenomeIntervalsChannelSetup( it,
+                                                        sampleSortedNames,
+                                                        sampleGenomeMap,
+                                                        windowGenomeIntervals.genomicIntervalWindowSize ) }
     .set { makeWindowedGenomeIntervalsInChannel }
 
 process makeWindowedGenomeIntervalsProcess {
@@ -740,10 +819,10 @@ process makeWindowedGenomeIntervalsProcess {
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*genomic_windows.bed", mode: 'copy'
 
 	input:
-        set file( inGenomeSizes ), inGenomeSizesMap from makeWindowedGenomeIntervalsInChannel
+    set file( inGenomeSizes ), inGenomeSizesMap from makeWindowedGenomeIntervalsInChannel
 
 	output:
-        file("*genomic_windows.bed") into makeWindowedGenomeIntervalsOutChannel
+    file( "*genomic_windows.bed" ) into makeWindowedGenomeIntervalsOutChannel
         
 	script:
 	"""
@@ -762,7 +841,12 @@ process makeWindowedGenomeIntervalsProcess {
 */
 mergePeaksOutChannelCopy01
     .toList()
-    .flatMap { makePromoterSumIntervalsChannelSetup( it, sampleSortedNames, sampleGenomeMap, proximalDownstream, proximalUpstream, peakToTssDistanceThreshold ) }
+    .flatMap { makePromoterSumIntervalsChannelSetup( it, 
+                                                     sampleSortedNames,
+                                                     sampleGenomeMap,
+                                                     promoterSumInterval.proximalDownstream,
+                                                     promoterSumInterval.proximalUpstream,
+                                                     promoterSumInterval.peakToTssDistanceThreshold ) }
     .set { makePromoterSumIntervalsInChannel }
 
 process makePromoterSumIntervalsProcess {
@@ -819,6 +903,7 @@ process makePromoterSumIntervalsProcess {
 ** Get peak counts in merged peak regions.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy02
+    .flatten()
     .toList()
     .flatMap { makeMergedPeakRegionCountsChannelSetupTranspositionSites( it, sampleSortedNames ) }
     .set { makeMergedPeakRegionCountsInChannelTranspositionSites }
@@ -841,12 +926,12 @@ process makeMergedPeakRegionCountsProcess {
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-peak_counts.txt", mode: 'copy'
 
 	input:
-		set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makeMergedPeakRegionCountsInChannelTranspositionSites
-		set file( inMergedPeaks ), inMergedPeaksMap from makeMergedPeakRegionCountsInChannelMergedPeaks
-		set file( inChromosomeSizes ), inChromosomeSizesMap from makeMergedPeakRegionCountsInChannelChromosomeSizes
+	set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makeMergedPeakRegionCountsInChannelTranspositionSites
+	set file( inMergedPeaks ), inMergedPeaksMap from makeMergedPeakRegionCountsInChannelMergedPeaks
+	set file( inChromosomeSizes ), inChromosomeSizesMap from makeMergedPeakRegionCountsInChannelChromosomeSizes
 
 	output:
-		file( "*-peak_counts.txt" ) into makeMergedPeakRegionCountsOutChannel
+	file( "*-peak_counts.txt" ) into makeMergedPeakRegionCountsOutChannel
 
 	script:
 	"""
@@ -856,7 +941,7 @@ process makeMergedPeakRegionCountsProcess {
     TEMP_REGION_FILE="${inMergedPeaksMap['sample']}-temp_regions.gz"
     
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
-    bedtools slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${flanking_distance_merged_peaks_regions} \
+    bedtools slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${mergedPeakRegionCounts.flanking_distance} \
     | bedtools merge -i stdin \
     | gzip > \${TEMP_REGION_FILE}
 
@@ -873,6 +958,7 @@ process makeMergedPeakRegionCountsProcess {
 ** Get peak counts in TSS regions.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy03
+    .flatten()
     .toList()
     .flatMap { makeTssRegionCountsChannelSetupTranspositionSites( it, sampleSortedNames ) }
     .set { makeTssRegionCountsInChannelTranspositionSites }
@@ -891,8 +977,8 @@ process makeTssRegionCountsProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus max_cores_align
-	memory "${memory_align}G"
+	cpus tssRegionCounts.max_cores
+	memory "${tssRegionCounts.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-tss_counts.txt", mode: 'copy'
 
@@ -913,7 +999,7 @@ process makeTssRegionCountsProcess {
 
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
 
-    bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${flanking_distance_tss_regions} \
+    bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${tssRegionCounts.flanking_distance} \
     | bedtools merge -i stdin \
     | gzip > \${TEMP_REGION_FILE}
 
@@ -1040,6 +1126,7 @@ callCellsOutChannelCalledCellsWhitelist
 ** Get per base coverage TSS region coverage
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy04
+    .flatten()
     .toList()
     .flatMap { getPerBaseCoverageTssChannelSetupTranspositionSites( it, sampleSortedNames ) }
     .set { getPerBaseCoverageTssInChannelTranspositionSites }
@@ -1076,7 +1163,7 @@ process getPerBaseCoverageTssProcess {
     # First get 2kb regions surrounding TSSs (not strand-specific here)
     # then calculate per-base coverage with bedtools
     # then write any non-zero entries to a file
-    bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${flanking_distance_per_base_tss_region}  \
+    bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${perBaseCoverageTss.flanking_distance}  \
     | bedtools coverage -sorted -d -a stdin -b ${inTranspositionSites} \
     | awk '{{ if (\$8 > 0) print \$0 }}' \
     | gzip > \${TEMP_OUTPUT_FILE}
@@ -1099,6 +1186,7 @@ process getPerBaseCoverageTssProcess {
 ** Make peak matrix.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy05
+    .flatten()
     .toList()
     .flatMap { makePeakMatrixChannelSetupTranspositionSites( it, sampleSortedNames ) }
     .set { makePeakMatrixInChannelTranspositionSites }
@@ -1148,6 +1236,7 @@ process makePeakMatrixProcess {
 ** Make window matrix.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy06
+    .flatten()
     .toList()
     .flatMap { makeWindowMatrixChannelSetupTranspositionSites( it, sampleSortedNames ) }
     .set { makeWindowMatrixInChannelTranspositionSites }
@@ -1196,6 +1285,7 @@ process makeWindowMatrixProcess {
 ** Make promoter matrix.
 */
 getUniqueFragmentsOutChannelTranspositionSitesCopy07
+    .flatten()
     .toList()
     .flatMap { makePromoterMatrixChannelSetupTranspositionSites( it, sampleSortedNames ) }
     .set { makePromoterMatrixInChannelTranspositionSites }
@@ -1293,6 +1383,7 @@ getPerBaseCoverageTssOutChannel
     .set { summarizeCellCallsInChannelPerBaseCoverageTss }
     
 makeWindowMatrixOutChannel
+    .flatten()
     .toList()
     .flatMap { summarizeCellCallsSetupWindowMatrix( it, sampleSortedNames ) }
     .set { summarizeCellCallsInChannelWindowMatrix }
@@ -1356,10 +1447,10 @@ process getPerCellInsertSizesProcess {
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
     input:
-        xxx
+    xxx
 
     output:
-        xxx
+    xxx
 
 //        # OPTIONAL BANDING SCORES QC
 //        if args.calculate_banding_scores:
@@ -1398,16 +1489,16 @@ process getBandingScoresProcess {
     cache 'lenient'
     errorStrategy onError
     penv 'serial'
-    cpus max_cores_align
-    memory "${memory_align}G"
+    cpus bandingScores.max_cores
+    memory "${bandingScores.memory} GB"
     module 'java/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
     input:
-        xxx
+    xxx
 
     output:
-        xxx
+    xxx
 
 //        # OPTIONAL BANDING SCORES QC
 //        if args.calculate_banding_scores:
@@ -1440,16 +1531,16 @@ process callMotifsProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus max_cores_align
-	memory "${memory_align}G"
+	cpus callMotifs.max_cores
+	memory "${callMotifs.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
-		xxx
+	xxx
 
 	output:
-		xxx
+	xxx
 
 //    # MOTIF CALLING IN PEAKS + MOTIF MATRIX THAT IS PER PEAK SET NOT PER SAMPLE
 //    motif_calling_outputs = []
@@ -1500,16 +1591,16 @@ process makeMotifMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus max_cores_align
-	memory "${memory_align}G"
+	cpus motifMatrix.max_cores
+	memory "${motifMatrix.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
-		xxx
+	xxx
 
 	output:
-		xxx
+	xxx
 
 // Note: this appears in a conditional block ' if run_motif_calling:' see above
 //        pipeline.add_job(MakeMotifMatrix(motif_calling_outputs,
@@ -1558,16 +1649,16 @@ process makeReducedDimensionMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus max_cores_align
-	memory "${memory_align}G"
+	cpus reducedDimensionMatrix.max_cores
+	memory "${reducedDimensionMatrix.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
-		xxx
+	xxx
 
 	output:
-		xxx
+	xxx
 
 //    if not args.no_secondary:
 //        for i,sample in enumerate(all_samples):
@@ -1629,16 +1720,16 @@ process makeCisTopicModelsProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus max_cores_align
-	memory "${memory_align}G"
+	cpus cisTopicModels.max_cores
+	memory "${cisTopicModels.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
-		xxx
+	xxx
 
 	output:
-		xxx
+	xxx
 
 
 //    if not args.no_secondary:
@@ -1684,15 +1775,15 @@ process template {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus max_cores_align
-	memory "${memory_align}G"
+	cpus template.max_cores
+	memory "${template.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:xxx'
 
 	input:
-		xxx
+	xxx
 
 	output:
-		xxx
+	xxx
 
 	script:
 	"""
@@ -2144,9 +2235,9 @@ def getSortedSampleNames( sampleLaneMap ) {
 */
 def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 	def demuxDir = params.demux_dir
-	def bowtieSeed = ''
-	if( params.bowtie_seed != null ) {
-	   bowtieSeed = "--seed ${params.bowtie_seed}"
+	def seed = ''
+	if( alignReads.seed != null ) {
+	   seed = "--seed ${alignReads.seed}"
 	}
 	def alignMaps = []
 	def samples = sampleLaneMap.keySet()
@@ -2160,7 +2251,7 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 			def genome_index = genomesJson[genome]['bowtie_index']
 			def whitelist    = genomesJson[genome]['whitelist_regions']
 			def bamfile      = String.format( '%s-%s.bam', aSample, aLane )
-			alignMaps.add( [ 'fastq1':fastq1, 'fastq2':fastq2, 'genome_index':genome_index, 'whitelist':whitelist, 'bowtieSeed': bowtieSeed, 'bamfile':bamfile ] )
+			alignMaps.add( [ 'fastq1':fastq1, 'fastq2':fastq2, 'genome_index':genome_index, 'whitelist':whitelist, 'seed': seed, 'bamfile':bamfile ] )
 		}
 	}
 	
@@ -2273,10 +2364,8 @@ def getUniqueFragmentsChannelSetup( inPaths, sampleSortedNames ) {
 		filesExpected.add( fileName )
 	}
     def filesFound = []
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            filesFound.add( aPath.getFileName().toString() )
-        }
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
         assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
@@ -2296,17 +2385,15 @@ def getUniqueFragmentsChannelSetup( inPaths, sampleSortedNames ) {
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            def aFile = aPath.getFileName().toString()
-            def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /merged[.]bam$/ ) {
-                pathMap[aSample]['bam'] = aPath
-            } else if( aFile =~ /merged[.]bam[.]bai$/ ) {
-                pathMap[aSample]['bai'] = aPath
-            } else {
-                println "Warning: getUniqueFragmentsChannelSetup: unexpected file \'${fileName}\'"
-            }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /merged[.]bam$/ ) {
+            pathMap[aSample]['bam'] = aPath
+        } else if( aFile =~ /merged[.]bam[.]bai$/ ) {
+            pathMap[aSample]['bai'] = aPath
+        } else {
+            println "Warning: getUniqueFragmentsChannelSetup: unexpected file \'${fileName}\'"
         }
     }
     
@@ -2368,10 +2455,8 @@ def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
         filesExpected.add( fileName )
     }
 	def filesFound = []
-	inPaths.each { aPathPair ->
-		aPathPair.each { aPath ->
-			filesFound.add( aPath.getFileName().toString() )
-		}
+	inPaths.each { aPath ->
+		filesFound.add( aPath.getFileName().toString() )
 	}
 	filesExpected.each { aFile ->
 		assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
@@ -2394,17 +2479,15 @@ def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 	samples.each { aSample ->
 		pathMap[aSample] = [:]
 	}
-	inPaths.each { aPathPair ->
-		aPathPair.each { aPath ->
-			def aFile = aPath.getFileName().toString()
-			def aSample = aFile.split( '-' )[0]
-			if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
-				pathMap[aSample]['bed'] = aPath
-			} else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
-				pathMap[aSample]['tbi'] = aPath
-			} else {
-				println "Warning: callPeaksChannelSetup: unexpected file \'${fileName}\'"
-			}
+	inPaths.each { aPath ->
+		def aFile = aPath.getFileName().toString()
+		def aSample = aFile.split( '-' )[0]
+		if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
+			pathMap[aSample]['bed'] = aPath
+		} else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
+			pathMap[aSample]['tbi'] = aPath
+		} else {
+			println "Warning: callPeaksChannelSetup: unexpected file \'${fileName}\'"
 		}
 	}
 	
@@ -2655,10 +2738,8 @@ def makeMergedPeakRegionCountsChannelSetupTranspositionSites( inPaths, sampleSor
         filesExpected.add( fileName )
     }
     def filesFound = []
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            filesFound.add( aPath.getFileName().toString() )
-        }
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
         assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
@@ -2668,17 +2749,15 @@ def makeMergedPeakRegionCountsChannelSetupTranspositionSites( inPaths, sampleSor
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            def aFile = aPath.getFileName().toString()
-            def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
-                pathMap[aSample]['bed'] = aPath
-            } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
-                pathMap[aSample]['tbi'] = aPath
-            } else {
-                println "Warning: makeMergedPeakRegionCountsChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
-            }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
+            pathMap[aSample]['bed'] = aPath
+        } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
+            pathMap[aSample]['tbi'] = aPath
+        } else {
+            println "Warning: makeMergedPeakRegionCountsChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
         }
     }
 
@@ -2818,10 +2897,8 @@ def makeTssRegionCountsChannelSetupTranspositionSites( inPaths, sampleSortedName
         filesExpected.add( fileName )
     }
     def filesFound = []
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            filesFound.add( aPath.getFileName().toString() )
-        }
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
         assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
@@ -2831,17 +2908,15 @@ def makeTssRegionCountsChannelSetupTranspositionSites( inPaths, sampleSortedName
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            def aFile = aPath.getFileName().toString()
-            def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
-                pathMap[aSample]['bed'] = aPath
-            } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
-                pathMap[aSample]['tbi'] = aPath
-            } else {
-                println "Warning: makeTssRegionCountsChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
-            }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
+            pathMap[aSample]['bed'] = aPath
+        } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
+            pathMap[aSample]['tbi'] = aPath
+        } else {
+            println "Warning: makeTssRegionCountsChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
         }
     }
 
@@ -3169,10 +3244,8 @@ def getPerBaseCoverageTssChannelSetupTranspositionSites( inPaths, sampleSortedNa
         filesExpected.add( fileName )
     }
     def filesFound = []
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            filesFound.add( aPath.getFileName().toString() )
-        }
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
         assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
@@ -3182,17 +3255,15 @@ def getPerBaseCoverageTssChannelSetupTranspositionSites( inPaths, sampleSortedNa
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            def aFile = aPath.getFileName().toString()
-            def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
-                pathMap[aSample]['bed'] = aPath
-            } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
-                pathMap[aSample]['tbi'] = aPath
-            } else {
-                println "Warning: getPerBaseCoverageTssChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
-            }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
+            pathMap[aSample]['bed'] = aPath
+        } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
+            pathMap[aSample]['tbi'] = aPath
+        } else {
+            println "Warning: getPerBaseCoverageTssChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
         }
     }
 
@@ -3324,10 +3395,8 @@ def makePeakMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
         filesExpected.add( fileName )
     }
     def filesFound = []
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            filesFound.add( aPath.getFileName().toString() )
-        }
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
         assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
@@ -3337,17 +3406,15 @@ def makePeakMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            def aFile = aPath.getFileName().toString()
-            def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
-                pathMap[aSample]['bed'] = aPath
-            } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
-                pathMap[aSample]['tbi'] = aPath
-            } else {
-                println "Warning: makePeakMatrixChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
-            }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
+            pathMap[aSample]['bed'] = aPath
+        } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
+            pathMap[aSample]['tbi'] = aPath
+        } else {
+            println "Warning: makePeakMatrixChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
         }
     }
 
@@ -3468,10 +3535,8 @@ def makeWindowMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames )
         filesExpected.add( fileName )
     }
     def filesFound = []
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            filesFound.add( aPath.getFileName().toString() )
-        }
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
         assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
@@ -3481,17 +3546,15 @@ def makeWindowMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames )
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            def aFile = aPath.getFileName().toString()
-            def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
-                pathMap[aSample]['bed'] = aPath
-            } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
-                pathMap[aSample]['tbi'] = aPath
-            } else {
-                println "Warning: makeWindowMatrixChannelSetupTranspositionSite: unexpected file \'${fileName}\'"
-            }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
+            pathMap[aSample]['bed'] = aPath
+        } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
+            pathMap[aSample]['tbi'] = aPath
+        } else {
+            println "Warning: makeWindowMatrixChannelSetupTranspositionSite: unexpected file \'${fileName}\'"
         }
     }
 
@@ -3613,10 +3676,8 @@ def makePromoterMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames
         filesExpected.add( fileName )
     }
     def filesFound = []
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            filesFound.add( aPath.getFileName().toString() )
-        }
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
         assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
@@ -3626,17 +3687,15 @@ def makePromoterMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathPair ->
-        aPathPair.each { aPath ->
-            def aFile = aPath.getFileName().toString()
-            def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
-                pathMap[aSample]['bed'] = aPath
-            } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
-                pathMap[aSample]['tbi'] = aPath
-            } else {
-                println "Warning: makePromoterMatrixChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
-            }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
+            pathMap[aSample]['bed'] = aPath
+         } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
+            pathMap[aSample]['tbi'] = aPath
+        } else {
+            println "Warning: makePromoterMatrixChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
         }
     }
 
@@ -3991,10 +4050,8 @@ def summarizeCellCallsSetupWindowMatrix( inPaths, sampleSortedNames ) {
     ** Check for expected input pathss.
     */
     def filesFound = []
-    inPaths.each { aPathSet ->
-        aPathSet.each { aPath ->
-            filesFound.add( aPath.getFileName().toString() )
-        }
+    inPaths.each {  aPath ->
+        filesFound.add( aPath.getFileName().toString() )
     }
 
     def filesExpected = []
@@ -4015,19 +4072,17 @@ def summarizeCellCallsSetupWindowMatrix( inPaths, sampleSortedNames ) {
     sampleSortedNames.each { aSample ->
         pathMap[aSample] = [:]
     }
-    inPaths.each { aPathSet ->
-        aPathSet.each { aPath ->
-            def aFile = aPath.getFileName().toString()
-            def aSample = aFile.split( '-' )[0]
-            if( aFile =~ /window_matrix[.]mtx[.]gz$/ ) {
-                pathMap[aSample]['mtx'] = aPath
-            } else if( aFile =~ /window_matrix[.]rows[.]txt$/ ) {
-                pathMap[aSample]['row'] = aPath
-            } else if( aFile =~ /window_matrix[.]columns[.]txt$/ ) {
-                pathMap[aSample]['col'] = aPath
-            } else {
-                println "Warning: makePromoterMatrixChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
-            }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /window_matrix[.]mtx[.]gz$/ ) {
+            pathMap[aSample]['mtx'] = aPath
+        } else if( aFile =~ /window_matrix[.]rows[.]txt$/ ) {
+            pathMap[aSample]['row'] = aPath
+        } else if( aFile =~ /window_matrix[.]columns[.]txt$/ ) {
+            pathMap[aSample]['col'] = aPath
+        } else {
+            println "Warning: makePromoterMatrixChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
         }
     }
 
