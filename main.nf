@@ -28,7 +28,7 @@
 **      special purpose NextFlow blocks (mostly, at least). This
 **      may require some experimentation.
 **   o  Hannah points out that NextFlow has a dump-hashes option, which
-**      causes NextFlow to dump directory/file hashes. It uses these
+**      causes NextFlow to dump directory/file hashes. It uses
 **      hashes when it resumes so one can use this to help diagnose
 **      resume problems.
 **   o  NextFlow 'consumes' file type content in channels. This means
@@ -62,6 +62,26 @@
 **     comment out portions of the script that I suspect may cause a NextFlow
 **     error. (I have the impression that Groovy/Java comments are not allowed in
 **     the script string also, which makes sense.)
+**  o  regarding files and channels and the resulting lists following the .toList()
+**     operator: it appears that when a single instance of a process block puts a
+**     single file into an output channel, the file appears as path variable in
+**     the list produced by .toList(). So each element in the list returned by
+**     .toList() is a single file. However, if the output statement in a process()
+**     block places more than one file in the channel, then the files are stored
+**     in a list, and the list returned by .toList() is a list of lists of path
+**     variables. I suspect that in this case the .flatten() operator (or flatten
+**     mode in the output statement) builds a new list in which each element is
+**     a path.
+**     At this time I do not flatten the channels so I have nested loops to get to
+**     the path variables. For the sake of simplifying the Groovy functions that
+**     need to deal with the lists of lists, it would be nice to flatten the lists.
+**     However, I am concerned about sprinkling flatten statements throughout the
+**     code. I feel fairly strongly that I want to not use the flatten mode in the
+**     process output definition block because it affects all downstream uses of
+**     the channel. (There may be times one wants lists of lists...). One possibility
+**     is to use generally the flatten operator immediately before the .toList()
+**     operator. I do know what happens if one uses the .flatten() operator on a
+**     'flat' channel but it seems reasonable to suppose that it does nothing.
 **
 ** Notes on groovy
 **   o  scope (these may not be entirely accurate):
@@ -160,6 +180,9 @@
 ** Tasks:
 **   o  work on src/summarize_cell_calls.R and generate_cistopic_model.R to
 **      remove dependencies on specific genome versions
+**   o  consider organizing parameters used in specific processing blocks
+**      using scopes () labeled with the processing block function. For example,
+**      align_reads.seed for the bowtie seed parameter.
 **   o  add/update genomes
 **   o  add dashboards/statistics
 **   o  add plots for Cailyn
