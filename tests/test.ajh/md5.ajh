@@ -1,0 +1,113 @@
+====================
+file: /net/bbi/vol1/data/bge/bbi/tests/gregs_three_level_atacseq/ajh.AHN3M7AFXY/analysis_dir/align_reads/md5.ajh.align_reads.out
+
+run.0.lane1.sample1.bam
+cc4bcca9f18f81850293ec75946d0433  -
+
+run.0.lane2.sample1.bam
+1d36e3722fcfe2d9341e5e71453920e3  -
+
+run.0.lane3.sample1.bam
+141405e35144f9dd5d6ff6a8fb0f63a9  -
+
+run.0.lane4.sample1.bam
+b0e30a4a05eae5ce278226839fa6b21f  -
+
+
+====================
+file: /net/bbi/vol1/data/bge/bbi/tests/gregs_three_level_atacseq/ajh.AHN3M7AFXY/analysis_dir/call_cells/md5.ajh.call_cells.out
+
+sample1.called_cells.txt
+a027e6f50b783b1f6c3061684a93627b  -
+
+sample1.cell_whitelist.txt
+13fe4feaee23e49fc755eb5c3b1e80cf  -
+
+sample1.stats.json
+7ea24672f11a3bce5d49e23ea7a1f77c  -
+
+
+====================
+file: /net/bbi/vol1/data/bge/bbi/tests/gregs_three_level_atacseq/ajh.AHN3M7AFXY/analysis_dir/call_peaks/md5.ajh.call_peaks.out
+
+sample1_peaks.narrowPeak.gz
+f6e708b5b69df89dfc848f7d36e1e97f  -
+
+sample1_summits.bed
+c8feb1e1635d80aa1bd5e9784071cecf  -
+
+merged_peaks.bed
+2c7b5c476147cd23cc6fb4b537c27a29  -
+
+
+====================
+file: /net/bbi/vol1/data/bge/bbi/tests/gregs_three_level_atacseq/ajh.AHN3M7AFXY/analysis_dir/get_unique_fragments/md5.ajh.get_unique_fragments.out
+
+sample1.bed.gz
+52db6b64ac5402db2a75c27e6c94c8cc  -
+
+sample1.duplicate_report.txt
+dfa4a5529b52ae9c023f40cd35dff311  -
+
+sample1.fragments.txt.gz
+07394f53c2c6585a48c5283b4963d8d4  -
+
+sample1.insert_sizes.txt
+0785bf4428f5ad56c7fe1ffcf0383b50  -
+
+
+====================
+file: /net/bbi/vol1/data/bge/bbi/tests/gregs_three_level_atacseq/ajh.AHN3M7AFXY/analysis_dir/make_matrices/md5.ajh.make_matrices.out
+
+sample1.peak_matrix.mtx.gz
+71fbe1911e554eef39fbae9b946c058b  -
+
+sample1.promoter_matrix.mtx.gz
+a2b069d2c25db12e16ec3a51204a7e1a  -
+
+sample1.window_matrix.mtx.gz
+318083e6b37a1586817b346e2bd4aeba  -
+
+sample1.peak_matrix.columns.txt
+13fe4feaee23e49fc755eb5c3b1e80cf  -
+
+sample1.peak_matrix.rows.txt
+eb2b1ac0cda3963d1c2bd5cec4331550  -
+
+sample1.promoter_matrix.columns.txt
+13fe4feaee23e49fc755eb5c3b1e80cf  -
+
+sample1.promoter_matrix.rows.txt
+e999cb27c4b6f64d4d037519e0aec4bd  -
+
+sample1.window_matrix.columns.txt
+13fe4feaee23e49fc755eb5c3b1e80cf  -
+
+sample1.window_matrix.rows.txt
+9c2e04f83bff0a5a07f2f74d7143e057  -
+
+genomic_windows.bed
+fff1aff92c7f4e43e72b71e5e39e7a62  -
+
+
+====================
+file: /net/bbi/vol1/data/bge/bbi/tests/gregs_three_level_atacseq/ajh.AHN3M7AFXY/analysis_dir/merge_bams/md5.ajh.merge_bams.out
+
+sample1.q10.sorted.merged.bam
+05a610dfa5c9b5dec4d00d8b3e342cb3  -
+
+
+====================
+file: /net/bbi/vol1/data/bge/bbi/tests/gregs_three_level_atacseq/ajh.AHN3M7AFXY/analysis_dir/per_base_tss_region_coverage/md5.ajh.tss_region_coverage.out
+
+sample1.tss_region_coverage.txt.gz
+989a51dcf1534a4da69d3ffeffd70ce4  -
+
+
+====================
+file: /net/bbi/vol1/data/bge/bbi/tests/gregs_three_level_atacseq/ajh.AHN3M7AFXY/analysis_dir/summarize_cell_calls/md5.ajh.summarize_cell_calls.out
+
+called_cells_summary.stats.txt
+9d3cf281d1c6cf7223eaf73c5648a3ea  called_cells_summary.stats.txt
+
+
