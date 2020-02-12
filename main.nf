@@ -168,7 +168,6 @@
 **     I do this only because the file names are strings rather than file
 **     objects. (The file object is created by NextFlow for channel input and
 **     output. The file name string is not (yet) linked to a channel.)
-**
 **  o  I am inclined to place a single file type in a process output channel.
 **     Currently, there a few places in which there is a file and its index
 **     file in a channel, and this may work out OK...I may later decide to place
@@ -176,6 +175,9 @@
 **  o  I dislike that there is more than one instance of the 'root' filename literal
 **     string for most of the (input/output) files. Perhaps I can define groovy
 **     variables to store these string literals: I am not certain that it can work.
+**     Consider defining the file name variables in process-related classes. Probably
+**     the class for the process in which the file is created. This would make it
+**     easy to identify the file source in downstream processing steps.
 **
 ** Tasks:
 **   o  work on src/summarize_cell_calls.R and generate_cistopic_model.R to
@@ -186,13 +188,16 @@
 **   o  compact functions where possible
 **   o  write program for aggregating runs
 **   o  add in remaining downstream processes
-**   o  consider using string variables for filenames
+**   o  consider using string variables for filenames (define the variables in the process class: try to define processes that create (output) the files)
 **   o  update file_map.docx
 **   o  write JSON args.json file (perhaps write a sample-specific JSON file to each sample directory) (done)
 **   o  fix reads_threshold in call_cells process (done)
 **   o  store files in sub-directories (done)
 **   o  build for new Shendure processors (no benefit)
 **   o  clean repositories (done for now)
+**   o  copy processing information to the sample directories
+**      so that investigators can describe the processing in
+**      a methods section of a paper
 **
 ** Check:
 **   o  check various global variable values such as flanking_distance*
@@ -253,6 +258,8 @@ params.max_cores = 16
 /*
 ** Initialize optional parameters to null.
 */
+params.max_forks = null
+params.queue = null
 params.samples = null
 params.bowtie_seed = null
 params.reads_threshold = null
@@ -263,130 +270,173 @@ params.topics = null
 
 
 /*
-** Various internal parameters organized as classes.
+** Internal parameters organized a class for each process block.
 */
-
-/*
-** Define the required classes.
-*/
-class Global {
-    public int max_cores
-    public int memory
-}
-global = new Global()
-
-class AlignReads {
-    public int max_cores
-    public int total_memory
-    public int memory
-    public int seed
-}
-alignReads = new AlignReads()
 
 class BandingScores {
-    public int max_cores
-    public int memory
+    public def max_cores = 1
+    public def memory = 12
 }
 bandingScores = new BandingScores()
 
+class CallCells {
+    public def max_cores = 1
+    public def memory = 5
+    public def reads_threshold
+}
+callCells =  new CallCells()
+callCells.read_threshold = params.read_threshold
+
 class CallMotifs {
-    public int max_cores
-    public int memory
+    public def max_cores = 1
+    public def memory = 10
 }
 callMotifs = new CallMotifs()
 
+class CallPeaks {
+    public def max_cores = 1
+    public def memory = 16
+}
+callPeaks =  new CallPeaks()
+
 class CisTopicModels {
-    public int max_cores
-    public int memory
+    public def max_cores = 1
+    public def memory = 40
 }
 cisTopicModels = new CisTopicModels()
 
+class CountReports {
+     public def max_cores = 1
+    public def memory = 10
+}
+countReports =  new CountReports()
+
+class GetUniqueFragments {
+    public def max_cores = 1
+    public def memory = 30
+}
+getUniqueFragments =  new GetUniqueFragments()
+
+class MergeBams {
+    public def max_cores = 8
+    public def memory = 16
+}
+mergeBams =  new MergeBams()
+
 class MergedPeakRegionCounts {
-    public int flanking_distance
+    public def max_cores = 1
+    public def memory = 20
+    public def flanking_distance = 0
 }
 mergedPeakRegionCounts =  new MergedPeakRegionCounts()
 
+class MergePeaks {
+    public def max_cores = 1
+    public def memory = 5
+}
+mergePeaks =  new MergePeaks()
+
 class MotifMatrix {
-    public int max_cores
-    public int memory
+    public def max_cores = 1
+    public def memory = 10
 }
 motifMatrix = new MotifMatrix()
 
+class PeakMatrix {
+    public def max_cores = 1
+    public def memory = 25
+}
+peakMatrix =  new PeakMatrix()
+
 class PerBaseCoverageTss {
-    public int flanking_distance
+    public def max_cores = 1
+    public def memory = 15
+    public def flanking_distance = 1000
 }
 perBaseCoverageTss = new PerBaseCoverageTss()
 
+class PerCellInsertSizes {
+    public def max_cores = 1
+    public def memory = 12
+}
+perCellInsertSizes =  new PerCellInsertSizes()
+
+class PromoterMatrix {
+    public def max_cores = 1
+    public def memory = 25
+}
+promoterMatrix =  new PromoterMatrix()
+
 class PromoterSumInterval {
-    public int proximalUpstream
-    public int proximalDownstream
-    public int peakToTssDistanceThreshold
+    public def max_cores = 1
+    public def memory = 10
+    public def proximalUpstream = 1000
+    public def proximalDownstream = 500
+    public def peakToTssDistanceThreshold = 30000
 }
 promoterSumInterval = new PromoterSumInterval()
 
 class ReducedDimensionMatrix {
-    public int max_cores
-    public int memory
+    public def max_cores = 1
+    public def memory = 16
 }
 reducedDimensionMatrix = new ReducedDimensionMatrix()
 
+class RunAlign {
+    public def max_cores
+    public def total_memory
+    public def memory
+    public def seed
+}
+runAlign = new RunAlign()
+runAlign.max_cores = params.max_cores
+runAlign.total_memory =  36 + 0.25 * runAlign.max_cores
+runAlign.memory = runAlign.total_memory / runAlign.max_cores
+runAlign.seed = params.bowtie_seed
+
+class SortChromosomeSize {
+    public def max_cores = 1
+    public def memory = 8
+}
+sortChromosomeSize =  new SortChromosomeSize()
+
+class SortTssBed {
+    public def max_cores = 1
+    public def memory = 8
+}
+sortTssBed =  new SortTssBed()
+
+class SummarizeCellCalls {
+    public def max_cores = 1
+    public def memory = 10
+}
+summarizeCellCalls =  new SummarizeCellCalls()
+
 class TssRegionCounts {
-    public int max_cores
-    public int memory
-    public int flanking_distance
+    public def max_cores = 1
+    public def memory = 20
+    public def flanking_distance = 1000
 }
 tssRegionCounts = new TssRegionCounts()
 
 class WindowGenomeIntervals {
-    public int genomicIntervalWindowSize
+    public def max_cores = 1
+    public def memory = 20
+    public def genomicIntervalWindowSize = 5000
 }
 windowGenomeIntervals = new WindowGenomeIntervals()
 
-/*
-** Global variables.
-*/
-global.max_cores = params.max_cores
-global.memory = 36
+class WindowMatrix {
+    public def max_cores = 1
+    public def memory = 25
+}
+windowMatrix =  new WindowMatrix()
 
-/*
-** Process block-specific variables (using 'classes').
-*/
-alignReads.max_cores = global.max_cores
-alignReads.total_memory = 36 + 0.25 * alignReads.max_cores
-alignReads.memory = alignReads.total_memory / alignReads.max_cores
-alignReads.seed = params.bowtie_seed
-
-bandingScores.max_cores = global.max_cores
-bandingScores.memory = global.memory
-
-callMotifs.max_cores = global.max_cores
-callMotifs.memory = global.memory
-
-motifMatrix.max_cores = global.max_cores
-motifMatrix.memory = global.memory
-
-reducedDimensionMatrix.max_cores = global.max_cores
-reducedDimensionMatrix.memory = global.memory
-
-cisTopicModels.max_cores = global.max_cores
-cisTopicModels.memory = global.memory
-
-windowGenomeIntervals.genomicIntervalWindowSize = 5000
-
-promoterSumInterval.proximalUpstream = 1000
-promoterSumInterval.proximalDownstream = 500
-promoterSumInterval.peakToTssDistanceThreshold = 30000
-
-mergedPeakRegionCounts.flanking_distance = 0
-
-tssRegionCounts.flanking_distance = 1000
-
-perBaseCoverageTss.flanking_distance = 1000
 
 /*
 ** Print usage when run with --help parameter.
 */
-if (params.help) {
+if( params.help ) {
 	writeHelp()
 	exit( 0 )
 }
@@ -491,6 +541,8 @@ Channel
 process sortTssBedProcess {
     cache 'lenient'
     errorStrategy onError
+    cpus sortTssBed.max_cores
+    memory "${sortTssBed.memory} GB"
 	publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.bed.gz", mode: 'copy'
 	
 	input:
@@ -519,6 +571,8 @@ Channel
 process sortChromosomeSizeProcess {
     cache 'lenient'
     errorStrategy errorStrategy { sleep(Math.pow(2, task.attempt) * 200); return 'retry' }
+    cpus sortChromosomeSize.max_cores
+    memory "${sortChromosomeSize.memory} GB"
 	publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.txt", mode: 'copy'
 	
 	input:
@@ -557,8 +611,8 @@ process runAlignProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus alignReads.max_cores
-	memory "${alignReads.memory} GB"
+	cpus runAlign.max_cores
+	memory "${runAlign.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bowtie2/2.2.3:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
  
@@ -572,7 +626,7 @@ process runAlignProcess {
 	"""
 	bowtie2 -3 1 \
 		-X 2000 \
-		-p ${alignReads.max_cores} \
+		-p ${runAlign.max_cores} \
 		-x ${alignMap['genome_index']} \
 		-1 ${alignMap['fastq1']} \
 		-2 ${alignMap['fastq2']} ${alignMap['seed']} \
@@ -595,8 +649,8 @@ process mergeBamsProcess {
     cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus 8
-	memory "16G"
+	cpus mergeBams.max_cores
+	memory "${mergeBams.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:sambamba/0.6.5:zlib/1.2.6:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bam", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bai", mode: 'copy'
@@ -630,8 +684,8 @@ mergeBamsOutChannelBam
 process getUniqueFragmentsProcess {
     cache 'lenient'
     errorStrategy onError
-	cpus 1
-	memory "30G"
+    cpus getUniqueFragments.max_cores
+	memory "${getUniqueFragments.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:tabix/0.2.6'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-transposition_sites.bed.gz*", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-fragments.txt.gz*", mode: 'copy'
@@ -702,7 +756,8 @@ getUniqueFragmentsOutChannelTranspositionSitesCopy01
 process callPeaksProcess {
     cache 'lenient'
     errorStrategy onError
-	memory "16G"
+    cpus callPeaks.max_cores
+    memory "${callPeaks.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:python/2.7.3:numpy/1.8.1:setuptools/25.1.1:MACS/2.1.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.narrowPeak.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.xls", mode: 'copy'
@@ -767,7 +822,8 @@ callPeaksOutChannelNarrowPeakCopy01
 process mergePeaksProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory "5G"
+    cpus mergePeaks.max_cores
+    memory "${mergePeaks.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
 
@@ -814,7 +870,8 @@ sortChromosomeSizeOutChannelCopy01
 process makeWindowedGenomeIntervalsProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory "2G"
+    cpus windowGenomeIntervals.max_cores
+    memory "${windowGenomeIntervals.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*genomic_windows.bed", mode: 'copy'
 
@@ -852,7 +909,8 @@ mergePeaksOutChannelCopy01
 process makePromoterSumIntervalsProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory "10G"
+    cpus promoterSumInterval.max_cores
+    memory "${promoterSumInterval.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions.bed.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions_note.txt", mode: 'copy'
@@ -921,7 +979,8 @@ sortChromosomeSizeOutChannelCopy02
 process makeMergedPeakRegionCountsProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory '20 GB'
+    cpus mergedPeakRegionCounts.max_cores
+    memory "${mergedPeakRegionCounts.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-peak_counts.txt", mode: 'copy'
 
@@ -1039,7 +1098,8 @@ makeTssRegionCountsOutChannel
 process makeCountReportsProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory "10 GB"
+    cpus countReports.max_cores
+    memory "${countReports.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:R/3.6.1'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-count_report.txt", mode: 'copy'
 
@@ -1080,7 +1140,8 @@ makeCountReportsOutChannelCopy01
 process callCellsProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory "5 GB"
+    cpus callCells.max_cores
+    memory "${callCells.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells.txt", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_whitelist.txt", mode: 'copy'
@@ -1144,7 +1205,8 @@ sortChromosomeSizeOutChannelCopy04
 process getPerBaseCoverageTssProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory '15 GB'
+    cpus perBaseCoverageTss.max_cores
+    memory "${perBaseCoverageTss.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "per_base_tss_region_coverage" ) }, pattern: "*-tss_region_coverage.txt.gz", mode: 'copy'
 
@@ -1204,7 +1266,8 @@ callCellsOutChannelCalledCellsWhitelistCopy01
 process makePeakMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory "25 GB"
+    cpus peakMatrix.max_cores
+    memory "${peakMatrix.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6 pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-peak_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
@@ -1254,7 +1317,8 @@ callCellsOutChannelCalledCellsWhitelistCopy02
 process makeWindowMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory "25 GB"
+    cpus windowMatrix.max_cores
+    memory "${windowMatrix.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6:pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-window_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
@@ -1303,7 +1367,8 @@ callCellsOutChannelCalledCellsWhitelistCopy03
 process makePromoterMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-	memory "25 GB"
+    cpus promoterMatrix.max_cores
+    memory "${promoterMatrix.memory} GB"
 	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6:pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-promoter_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
@@ -1395,7 +1460,8 @@ Channel
 process summarizeCellCallsProcess {
     cache 'lenient'
     errorStrategy onError
-    memory "10 GB"
+    cpus summarizeCellCalls.max_cores
+    memory "${summarizeCellCalls.memory} GB"
     module 'java/latest:modules:modules-init:modules-gs'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.pdf", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.stats.txt", mode: 'copy'
@@ -1442,7 +1508,8 @@ process summarizeCellCallsProcess {
 process getPerCellInsertSizesProcess {
     cache 'lenient'
     errorStrategy onError
-    memory "12 GB"
+    cpus perCellInsertSizes.max_cores
+    memory "${perCellInsertSizes.memory} GB"
     module 'java/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
@@ -1866,7 +1933,7 @@ def writeHelp() {
 	log.info '    params.topic_models (flag)                 Add flag to generate topic models using cisTopic.'
 	log.info '    params.topics (str)                        If generating topic models, this allows the user to specify a list of topic counts to try.'
     log.info '    params.max_cores = 16                      The maximum number of cores to use - fewer will be used if appropriate.'
-    log.info '    process.maxForks = 20                      The maximum number of processes to run at the same time on the cluster.'
+    log.info '    process.max_forks = 20                      The maximum number of processes to run at the same time on the cluster.'
     log.info '    process.queue = "trapnell-short.q"         The queue on the cluster where the jobs should be submitted.'
     log.info ''
     log.info 'Issues? Contact bge@uw.edu'
@@ -1885,7 +1952,7 @@ def reportRunParams( params ) {
 	if( params.samples != null ) {
 		s += String.format( "Samples to include in analysis:   %s\n", params.samples )
 	}
-    if( params.bowtie_seed != null ) {
+    if( params.bowtie_seed != 0 ) {
         s += String.format( "Bowtie random number generator seed:  %s\n", params.bowtie_seed )
     }
 	if( params.reads_threshold != null ) {
@@ -2025,12 +2092,17 @@ def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename ) {
     File file_json = new File( jsonFilename )
     analyzeDict = [:]
     analyzeDict['run_date'] = new Date()
-    if( params.reads_threshold != null ) {
-      analyzeDict['params.reads_threshold'] = params.reads_threshold
-    }
-    if( params.samples != null ) {
-        analyzeDict['params.samples'] = params.samples
-    }
+    analyzeDict['demux_dir'] = params.demux_dir
+    analyzeDict['analyze_dir'] = params.analyze_dir
+    analyzeDict['genomes_json'] = params.genomes_json
+    analyzeDict['params.samples'] = params.samples
+    analyzeDict['bowtie_seed'] = params.bowtie_seed
+    analyzeDict['reads_threshold'] = params.reads_threshold
+    analyzeDict['no_secondary'] = params.no_secondary
+    analyzeDict['calculate_banding_scores'] = params.calculate_banding_scores
+    analyzeDict['topic_models'] = params.topic_models
+    analyzeDict['topics'] = params.topics
+    analyzeDict['max_cores'] = params.max_cores
     argsJson['ANALYZE'] = analyzeDict
     file_json.write( JsonOutput.prettyPrint( JsonOutput.toJson( argsJson ) ) )
 }
@@ -2236,8 +2308,8 @@ def getSortedSampleNames( sampleLaneMap ) {
 def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 	def demuxDir = params.demux_dir
 	def seed = ''
-	if( alignReads.seed != null ) {
-	   seed = "--seed ${alignReads.seed}"
+	if( runAlign.seed != null ) {
+	   seed = "--seed ${runAlign.seed}"
 	}
 	def alignMaps = []
 	def samples = sampleLaneMap.keySet()
@@ -3189,8 +3261,8 @@ def callCellsChannelSetup( inPaths, sampleSortedNames ) {
         def outCellWhitelist = aSample + '-called_cells_whitelist.txt'
         def outCallCellsStats = aSample + '-called_cells_stats.json'
         def readsThreshold = ""
-        if( params.reads_threshold != null ) {
-            readsThreshold = "--reads_threshold ${params.reads_threshold}"
+        if( callCells.reads_threshold != null ) {
+            readsThreshold = "--reads_threshold ${callCells.reads_threshold}"
         }
         def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample,
                                                 'readsThreshold': readsThreshold,
