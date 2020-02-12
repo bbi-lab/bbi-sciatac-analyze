@@ -285,7 +285,7 @@ class CallCells {
     public def reads_threshold
 }
 callCells =  new CallCells()
-callCells.read_threshold = params.read_threshold
+callCells.reads_threshold = params.reads_threshold
 
 class CallMotifs {
     public def max_cores = 1
@@ -2089,13 +2089,12 @@ def checkFastqs( params, sampleLaneMap ) {
 ** Write run data JSON file(s).
 */
 def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename ) {
-    File file_json = new File( jsonFilename )
     analyzeDict = [:]
     analyzeDict['run_date'] = new Date()
     analyzeDict['demux_dir'] = params.demux_dir
     analyzeDict['analyze_dir'] = params.analyze_dir
     analyzeDict['genomes_json'] = params.genomes_json
-    analyzeDict['params.samples'] = params.samples
+    analyzeDict['samples'] = params.samples
     analyzeDict['bowtie_seed'] = params.bowtie_seed
     analyzeDict['reads_threshold'] = params.reads_threshold
     analyzeDict['no_secondary'] = params.no_secondary
@@ -2103,8 +2102,9 @@ def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename ) {
     analyzeDict['topic_models'] = params.topic_models
     analyzeDict['topics'] = params.topics
     analyzeDict['max_cores'] = params.max_cores
-    argsJson['ANALYZE'] = analyzeDict
-    file_json.write( JsonOutput.prettyPrint( JsonOutput.toJson( argsJson ) ) )
+    analyzeDict['RUNS'] = argsJson
+    File file_json = new File( jsonFilename )
+    file_json.write( JsonOutput.prettyPrint( JsonOutput.toJson( analyzeDict ) ) )
 }
 
 
