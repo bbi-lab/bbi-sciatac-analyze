@@ -1949,6 +1949,8 @@ def reportRunParams( params ) {
 	s += String.format( "--------------\n" )
 	s += String.format( "Demultiplexed fastq directory:        %s\n", params.demux_dir )
 	s += String.format( "Analysis output directory:            %s\n", params.analyze_dir )
+    s += String.format( "Launch directory:                     %s\n", workflow.launchDir )
+    s += String.format( "Work directory:                       %s\n", workflow.workDir )
 	if( params.samples != null ) {
 		s += String.format( "Samples to include in analysis:   %s\n", params.samples )
 	}
