@@ -13,7 +13,7 @@ HUMAN_GTF_GZ="Homo_sapiens.GRCh38.99.gtf.gz"
 
 HUMAN_SEQUENCES_TO_KEEP_ALIGNER="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 X Y MT"
 HUMAN_SEQUENCES_TO_KEEP_ANALYSIS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 X Y"
-HUMAN_SELECT_GENE_BIOTYPES="protein|TR_V|TR_D|TR_J|TR_C|IG_V|IG_D|IG_J|IG_C|IG_LV"
+HUMAN_SELECT_GENE_BIOTYPES="protein|lncRNA|TR_V|TR_D|TR_J|TR_C|IG_V|IG_D|IG_J|IG_C|IG_LV"
 
 HUMAN_FINAL_IDS_FILE="human.sequences_to_keep.txt"
 HUMAN_CHROMOSOME_SIZES_FILE="human.chromosome_sizes.txt"
@@ -29,11 +29,11 @@ MOUSE_ENSEMBL_DNA_URL="ftp.ensembl.org:/pub/release-99/fasta/mus_musculus/dna"
 MOUSE_FASTA_GZ="Mus_musculus.GRCm38.dna.toplevel.fa.gz"
 
 MOUSE_ENSEMBL_GTF_URL="ftp.ensembl.org:/pub/release-99/gtf/mus_musculus"
-MOUSE_GTF_GZ="Mus_musculus.GRCm38.99.chr.gtf.gz"
+MOUSE_GTF_GZ="Mus_musculus.GRCm38.99.gtf.gz"
 
 MOUSE_SEQUENCES_TO_KEEP_ALIGNER="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 X Y MT"
 MOUSE_SEQUENCES_TO_KEEP_ANALYSIS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 X Y"
-MOUSE_SELECT_GENE_BIOTYPES="protein|TR_V|TR_D|TR_J|TR_C|IG_V|IG_D|IG_J|IG_C|IG_LV"
+MOUSE_SELECT_GENE_BIOTYPES="protein|lncRNA|TR_V|TR_D|TR_J|TR_C|IG_V|IG_D|IG_J|IG_C|IG_LV"
 
 MOUSE_FINAL_IDS_FILE="mouse.sequences_to_keep.txt"
 MOUSE_CHROMOSOME_SIZES_FILE="mouse.chromosome_sizes.txt"
@@ -114,7 +114,7 @@ make_tss_file
 mv CHECKSUMS.dna human.CHECKSUMS.dna
 mv README.dna human.README.dna
 mv CHECKSUMS.gtf human.CHECKSUMS.gtf
-mv README.dna human.README.gtf
+mv README.gtf human.README.gtf
 
 
 #
@@ -128,9 +128,6 @@ FASTA_FILTERED=${FASTA}.filtered
 ENSEMBL_GTF_URL=$MOUSE_ENSEMBL_GTF_URL
 GTF_GZ=$MOUSE_GTF_GZ
 GTF=`echo $GTF_GZ | sed 's/\.gz$//'`
-
-CHECKSUMS="mouse.CHECKSUMS"
-README="mouse.README"
 
 SEQUENCES_TO_KEEP_ALIGNER=$MOUSE_SEQUENCES_TO_KEEP_ALIGNER
 SEQUENCES_TO_KEEP_ANALYSIS=$MOUSE_SEQUENCES_TO_KEEP_ANALYSIS
@@ -163,7 +160,7 @@ make_tss_file
 mv CHECKSUMS.dna mouse.CHECKSUMS.dna
 mv README.dna mouse.README.dna
 mv CHECKSUMS.gtf mouse.CHECKSUMS.gtf
-mv README.dna mouse.README.gtf
+mv README.gtf mouse.README.gtf
 
 
 #
@@ -178,7 +175,7 @@ barnyard_edit_tss_bed
 # Combine files and make aligner index.
 #
 barnyard_combine_files
-#barnyard_make_aligner_index
+barnyard_make_aligner_index
 
 #
 # Clean up a bit.

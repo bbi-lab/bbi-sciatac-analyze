@@ -34,6 +34,7 @@ function get_fasta_file
   echo "Calculate $FASTA file sequence md5 checksums..." | tee -a ${LOG_FILE}
   $MD5_SEQ $FASTA > $FASTA.md5_seq
 
+  echo | tee -a ${LOG_FILE}
   echo 'Done.' | tee -a ${LOG_FILE}
   echo | tee -a ${LOG_FILE}
 }
@@ -44,18 +45,19 @@ function get_fasta_file
 #
 function get_fasta_info()
 {
-  echo "Get fasta sequence headers for $FASTA file..." | tee -a ${LOG_FILE}
+  echo "Get fasta sequence headers in $FASTA file..." | tee -a ${LOG_FILE}
   date '+%Y.%m.%d:%H.%M.%S' | tee -a ${LOG_FILE}
   grep '^>' $FASTA > $FASTA.headers
  
   echo "CHECKPOINT" | tee -a ${LOG_FILE}
-  echo "Fasta sequence header for $FASTA file" | tee -a ${LOG_FILE}
+  echo "Fasta sequence header in $FASTA file..." | tee -a ${LOG_FILE}
   cat $FASTA.headers | tee -a ${LOG_FILE}
 
   echo "CHECKPOINT" | tee -a ${LOG_FILE}
-  echo "Fasta sequence type counts for $FASTA file" | tee -a ${LOG_FILE}
+  echo "Fasta sequence type counts in $FASTA file..." | tee -a ${LOG_FILE}
   awk '{print$4}' $FASTA.headers  | sort | uniq -c | tee -a ${LOG_FILE}
 
+  echo | tee -a ${LOG_FILE}
   echo 'Done.' | tee -a ${LOG_FILE}
   echo | tee -a ${LOG_FILE}
 }

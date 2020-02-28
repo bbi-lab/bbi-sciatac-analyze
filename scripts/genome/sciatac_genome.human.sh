@@ -10,7 +10,7 @@ GTF_GZ="Homo_sapiens.GRCh38.99.gtf.gz"
 
 SEQUENCES_TO_KEEP_ALIGNER="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 X Y MT"
 SEQUENCES_TO_KEEP_ANALYSIS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 X Y"
-SELECT_GENE_BIOTYPES="protein|TR_V|TR_D|TR_J|TR_C|IG_V|IG_D|IG_J|IG_C|IG_LV"
+SELECT_GENE_BIOTYPES="protein|lncRNA|TR_V|TR_D|TR_J|TR_C|IG_V|IG_D|IG_J|IG_C|IG_LV"
 
 INDEX_PREFIX="$ORGANISM"
 OUT_DIR="/net/bbi/vol1/data/bge/genomes/${ORGANISM}_atac"
@@ -18,7 +18,7 @@ OUT_DIR="/net/bbi/vol1/data/bge/genomes/${ORGANISM}_atac"
 LOG_FILE=$OUT_DIR/log.out
 
 
-SCRIPT_DIR="/net/gs/vol1/home/bge/eclipse-workspace/bbi-sciatac-analyze/genomes/scripts/genomes"
+SCRIPT_DIR="/net/gs/vol1/home/bge/eclipse-workspace/bbi-sciatac-analyze/scripts/genome"
 
 source $SCRIPT_DIR/01.sciatac_genome.common_definitions.sh
 source $SCRIPT_DIR/02.sciatac_genome.get_fasta_file.sh
@@ -32,18 +32,18 @@ mkdir -p $OUT_DIR
 
 pushd $OUT_DIR
 
-#get_fasta_file
-#get_fasta_info
-#sequences_to_keep_named
-#filter_fasta_file
-#make_chromosome_sizes_file
-#make_whitelist_regions_file
-#make_aligner_index
-#get_gtf_file
-#get_gtf_info
-#make_tss_file
-#make_gene_bodies_file
-remove_unnecessary_files
+get_fasta_file
+get_fasta_info
+sequences_to_keep_named
+filter_fasta_file
+make_chromosome_sizes_file
+make_whitelist_regions_file
+make_aligner_index
+get_gtf_file
+get_gtf_info
+make_tss_file
+make_gene_bodies_file
+#remove_unnecessary_files
 
 popd
 

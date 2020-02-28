@@ -222,6 +222,12 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.StackTraceUtils
+import java.nio.file.Files
+
+/*
+** Run date/time.
+*/
+def timeNow = new Date()
 
 /*
 ** Where to find scripts.
@@ -452,6 +458,11 @@ assert ( params.demux_dir && params.analyze_dir && params.genomes_json) : "missi
 reportRunParams( params )
 
 /*
+** Archive configuration and samplesheet files in demux_dir.
+*/
+archiveRunFiles( params, timeNow )
+
+/*
 ** Check that required directories exist or can be made.
 */
 checkDirectories( params )
@@ -522,7 +533,7 @@ checkFastqs( params, sampleLaneJsonMap )
 **   o  perhaps write sample-specific JSON files
 */
 def jsonFilename = params.analyze_dir + '/args.json'
-writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename )
+writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow )
 
 
 /*
@@ -2010,6 +2021,19 @@ def checkDirectories( params ) {
 }
 
 
+def archiveRunFiles( params, timeNow )
+{
+  file_suffix = timeNow.format( 'yyyy-MM-dd_HH-mm-ss' )
+  def i = 1
+  workflow.configFiles.each { aFile ->
+    src = aFile
+    dst = "${aFile.getName()}.${file_suffix}.${i}"
+    Files.copy( src, dst )
+    i += 1
+  }
+}
+
+
 /*
 ** Read args.json file from demux directory.
 */
@@ -2090,9 +2114,9 @@ def checkFastqs( params, sampleLaneMap ) {
 /*
 ** Write run data JSON file(s).
 */
-def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename ) {
+def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow ) {
     analyzeDict = [:]
-    analyzeDict['run_date'] = new Date()
+    analyzeDict['run_date'] = timeNow.format( 'yyyy-MM-dd_HH-mm-ss' )
     analyzeDict['demux_dir'] = params.demux_dir
     analyzeDict['analyze_dir'] = params.analyze_dir
     analyzeDict['genomes_json'] = params.genomes_json

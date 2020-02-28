@@ -21,7 +21,7 @@ get_tss <- function(gene_ann) {
 
   # Output BED format
   pos[,"end"] <- pos[,"start"]
-  pos[,"start"] <- pos["start"] - 1
+  pos[,"start"] <- pos[,"start"] - 1
 
   neg[,"start"] <- neg[,"end"] - 1
   neg[,"end"] <- neg[,"start"] + 1
