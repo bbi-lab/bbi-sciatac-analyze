@@ -223,6 +223,8 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.StackTraceUtils
 import java.nio.file.Files
+import java.nio.file.Path 
+import java.nio.file.Paths
 
 /*
 ** Run date/time.
@@ -2025,9 +2027,10 @@ def archiveRunFiles( params, timeNow )
 {
   file_suffix = timeNow.format( 'yyyy-MM-dd_HH-mm-ss' )
   def i = 1
+  Path dst
   workflow.configFiles.each { aFile ->
     src = aFile
-    dst = "${aFile.getName()}.${file_suffix}.${i}"
+    dst = Paths.get( "${aFile.getName()}.${file_suffix}.${i}" )
     Files.copy( src, dst )
     i += 1
   }
