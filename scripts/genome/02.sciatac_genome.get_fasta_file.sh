@@ -31,9 +31,6 @@ function get_fasta_file
   echo "Uncompress $FASTA file..." | tee -a ${LOG_FILE}
   zcat $FASTA_GZ > $FASTA
 
-  echo "Calculate $FASTA file sequence md5 checksums..." | tee -a ${LOG_FILE}
-  $MD5_SEQ $FASTA > $FASTA.md5_seq
-
   echo | tee -a ${LOG_FILE}
   echo 'Done.' | tee -a ${LOG_FILE}
   echo | tee -a ${LOG_FILE}
@@ -45,6 +42,9 @@ function get_fasta_file
 #
 function get_fasta_info()
 {
+  echo "Calculate $FASTA file sequence md5 checksums..." | tee -a ${LOG_FILE}
+  $MD5_SEQ $FASTA > $FASTA.md5_seq
+
   echo "Get fasta sequence headers in $FASTA file..." | tee -a ${LOG_FILE}
   date '+%Y.%m.%d:%H.%M.%S' | tee -a ${LOG_FILE}
   grep '^>' $FASTA > $FASTA.headers
