@@ -1,33 +1,44 @@
 {
-    "hg19": {
-        "name": "hg19",
-        "tss": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/hg19/tss.bed.gz",
-        "gene_score_bed": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/hg19/gene_bodies.plus_2kb_upstream.bed.gz",
-        "macs_genome": "hs",
-        "bowtie_index": "/net/shendure/vol10/projects/scATAC/nobackup/genomes/hg19/bowtie/hs37d5",
-        "whitelist_regions": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/hg19/whitelist_regions.bed",
-        "chromosome_sizes": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/hg19/chromosome_sizes.txt",
-        "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
-        "fasta": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/hg19/reference/hg19.fa"
-    },
-    "mm9": {
-        "name": "mm9",
-        "tss": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/mm9/tss.bed.gz",
-        "gene_score_bed": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/mm9/gene_bodies.plus_2kb_upstream.bed.gz",
-        "macs_genome": "mm",
-        "bowtie_index": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/bowtie_indices/mm9/mm9",
-        "whitelist_regions": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/mm9/whitelist_regions.bed",
-        "chromosome_sizes": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/mm9/chromosome_sizes.txt",
-        "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
-        "fasta": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/mm9/reference/mm9.fa"
-    },
-    "hg19_mm9": {
-        "name": "hg19_mm9",
+    "barnyard": {
+        "name": "barnyard",
         "barnyard": true,
         "macs_genome": 4.57e9,
-        "whitelist_regions": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/hg19_mm9/whitelist_regions.bed",
-        "tss": "/net/gs/vol1/home/ajh24/common_data/sciatac_pipeline_data/hg19_mm9/tss.bed.gz",
-        "chromosome_sizes": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/hg19_mm9/chromosome_sizes.txt",
-        "bowtie_index": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/bowtie_indices/hg19_mm9/hg19_mm9"
+        "whitelist_regions": "/net/bbi/vol1/data/genomes/barnyard_atac/whitelist_regions.bed",
+        "tss": "/net/bbi/vol1/data/genomes/barnyard_atac/tss.bed.gz",
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes/barnyard_atac/chromosome_sizes.txt",
+        "bowtie_index": "/net/bbi/vol1/data/genomes/barnyard_atac/barnyard"
+    },
+    "human": {
+        "name": "human",
+        "tss": "/net/bbi/vol1/data/genomes/human_atac/tss.bed.gz",
+        "gene_score_bed": "/net/bbi/vol1/data/genomes/human_atac/gene_bodies.plus_2kb_upstream.bed.gz",
+        "macs_genome": "hs",
+        "bowtie_index": "/net/bbi/vol1/data/genomes/human_atac/human",
+        "whitelist_regions": "/net/bbi/vol1/data/genomes/human_atac/whitelist_regions.bed",
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes/human_atac/chromosome_sizes.txt",
+        "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
+        "fasta": "/net/bbi/vol1/data/genomes/human_atac/xxx"
+    },
+    "macaque": {
+        "name": "macaque",
+        "tss": "/net/bbi/vol1/data/genomes/macaque_atac/tss.bed.gz",
+        "gene_score_bed": "/net/bbi/vol1/data/genomes/macaque_atac/gene_bodies.plus_2kb_upstream.bed.gz",
+        "macs_genome": "mm",
+        "bowtie_index": "/net/bbi/vol1/data/genomes/macaque_atac/macaque",
+        "whitelist_regions": "/net/bbi/vol1/data/genomes/macaque_atac/whitelist_regions.bed",
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes/macacque_atac/chromosome_sizes.txt",
+        "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
+        "fasta": "/net/bbi/vol1/data/genomes/macaque_atac/xxx"
+    },
+    "mouse": {
+        "name": "mouse",
+        "tss": "/net/bbi/vol1/data/genomes/mouse_atac/tss.bed.gz",
+        "gene_score_bed": "/net/bbi/vol1/data/genomes/mouse_atac/gene_bodies.plus_2kb_upstream.bed.gz",
+        "macs_genome": "mm",
+        "bowtie_index": "/net/bbi/vol1/data/genomes/mouse_atac/mouse",
+        "whitelist_regions": "/net/bbi/vol1/data/genomes/mouse_atac/whitelist_regions.bed",
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes/mouse_atac/chromosome_sizes.txt",
+        "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
+        "fasta": "/net/bbi/vol1/data/genomes/mouse_atac/xxx"
     }
 }

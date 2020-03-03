@@ -2103,12 +2103,12 @@ def checkFastqs( params, sampleLaneMap ) {
 		lanes.each { aLane ->
 			fileName = dirName + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
 			fileHandle = new File( fileName )
-			assert fileHandle.exists() : "unable to find fasta file ${fileName}"
-			assert fileHandle.canRead() : "unable to find fasta file ${fileName}"
+			assert fileHandle.exists() : "unable to find fastq file ${fileName}"
+			assert fileHandle.canRead() : "unable to find fastq file ${fileName}"
 			fileName = dirName + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
 			fileHandle = new File( fileName )
-			assert fileHandle.exists() : "unable to find fasta file ${fileName}"
-			assert fileHandle.canRead() : "unable to find fasta file ${fileName}"
+			assert fileHandle.exists() : "unable to find fastq file ${fileName}"
+			assert fileHandle.canRead() : "unable to find fastq file ${fileName}"
 		}
 	}
 }
