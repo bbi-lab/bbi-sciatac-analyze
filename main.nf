@@ -278,9 +278,19 @@ params.topics = null
 
 
 /*
+** Internal parameters for values shared with more than
+** one process block.
+*/
+class CommonValue {
+    public def bedtools = "bedtools"
+    public def samtools = "samtools"
+}
+commonValue = new CommonValue()
+
+
+/*
 ** Internal parameters organized a class for each process block.
 */
-
 class BandingScores {
     public def max_cores = 1
     public def memory = 12
@@ -304,8 +314,10 @@ callMotifs = new CallMotifs()
 class CallPeaks {
     public def max_cores = 1
     public def memory = 16
+    public def macs2
 }
 callPeaks =  new CallPeaks()
+callPeaks.macs2 = "macs2"
 
 class CisTopicModels {
     public def max_cores = 1
@@ -322,14 +334,18 @@ countReports =  new CountReports()
 class GetUniqueFragments {
     public def max_cores = 1
     public def memory = 30
+    public def tabix
 }
 getUniqueFragments =  new GetUniqueFragments()
+getUniqueFragments.tabix = "tabix"
 
 class MergeBams {
     public def max_cores = 8
     public def memory = 16
+    public def sambamba
 }
 mergeBams =  new MergeBams()
+mergeBams.sambamba = "sambamba"
 
 class MergedPeakRegionCounts {
     public def max_cores = 1
@@ -352,7 +368,7 @@ motifMatrix = new MotifMatrix()
 
 class PeakMatrix {
     public def max_cores = 1
-    public def memory = 25
+    public def memory = 96
 }
 peakMatrix =  new PeakMatrix()
 
@@ -371,7 +387,7 @@ perCellInsertSizes =  new PerCellInsertSizes()
 
 class PromoterMatrix {
     public def max_cores = 1
-    public def memory = 25
+    public def memory = 64
 }
 promoterMatrix =  new PromoterMatrix()
 
@@ -395,8 +411,10 @@ class RunAlign {
     public def total_memory
     public def memory
     public def seed
+    public def bowtie2
 }
 runAlign = new RunAlign()
+runAlign.bowtie2 = "/net/bbi/vol1/data/sw_install/bowtie2-2.4.1/bin/bowtie2"
 runAlign.max_cores = params.max_cores
 runAlign.total_memory =  36 + 0.25 * runAlign.max_cores
 runAlign.memory = runAlign.total_memory / runAlign.max_cores
@@ -436,10 +454,9 @@ windowGenomeIntervals = new WindowGenomeIntervals()
 
 class WindowMatrix {
     public def max_cores = 1
-    public def memory = 25
+    public def memory = 72
 }
 windowMatrix =  new WindowMatrix()
-
 
 /*
 ** Print usage when run with --help parameter.
@@ -626,7 +643,7 @@ process runAlignProcess {
 	penv 'serial'
 	cpus runAlign.max_cores
 	memory "${runAlign.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:bowtie2/2.2.3:samtools/1.9'
+	module 'openjdk/latest:modules:modules-init:modules-gs:tbb/2019_U5:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
  
 	input:
@@ -637,14 +654,14 @@ process runAlignProcess {
 
 	script:
 	"""
-	bowtie2 -3 1 \
+	${runAlign.bowtie2} -3 1 \
 		-X 2000 \
 		-p ${runAlign.max_cores} \
 		-x ${alignMap['genome_index']} \
 		-1 ${alignMap['fastq1']} \
 		-2 ${alignMap['fastq2']} ${alignMap['seed']} \
-		| samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > ${alignMap['bamfile']}.tmp.bam
-        samtools sort -T ${alignMap['bamfile']}.sorttemp --threads 4 ${alignMap['bamfile']}.tmp.bam -o ${alignMap['bamfile']}
+		| ${commonValue.samtools} view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > ${alignMap['bamfile']}.tmp.bam
+        ${commonValue.samtools} sort -T ${alignMap['bamfile']}.sorttemp --threads 4 ${alignMap['bamfile']}.tmp.bam -o ${alignMap['bamfile']}
         rm ${alignMap['bamfile']}.tmp.bam
 	"""
 }
@@ -664,7 +681,7 @@ process mergeBamsProcess {
 	penv 'serial'
 	cpus mergeBams.max_cores
 	memory "${mergeBams.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:sambamba/0.6.5:zlib/1.2.6:samtools/1.9'
+	module 'openjdk/latest:modules:modules-init:modules-gs:sambamba/0.6.5:zlib/1.2.6:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bam", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bai", mode: 'copy'
 
@@ -676,8 +693,8 @@ process mergeBamsProcess {
 	
 	script:
 	"""
-	sambamba merge --nthreads 8 ${outBam} ${inBams}
-	samtools index ${outBam}
+	${mergeBams.sambamba} merge --nthreads 8 ${outBam} ${inBams}
+	${commonValue.samtools} index ${outBam}
 	"""
 }
 
@@ -699,7 +716,7 @@ process getUniqueFragmentsProcess {
     errorStrategy onError
     cpus getUniqueFragments.max_cores
 	memory "${getUniqueFragments.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:tabix/0.2.6'
+	module 'openjdk/latest:modules:modules-init:modules-gs:tabix/0.2.6'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-transposition_sites.bed.gz*", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-fragments.txt.gz*", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-insert_sizes.txt", mode: 'copy'
@@ -730,10 +747,10 @@ process getUniqueFragmentsProcess {
 
 	# Index BAM file / bgzip tabix index for fragments file and transposition_sites BED
 	bgzip -f \$fragments_uncompressed
-	tabix -p bed ${uniqueFragmentsMap['fragments_file']}
+	${getUniqueFragments.tabix} -p bed ${uniqueFragmentsMap['fragments_file']}
 
 	bgzip -f \$transposition_sites_uncompressed
-	tabix -p bed ${uniqueFragmentsMap['transposition_sites_file']}
+	${getUniqueFragments.tabix} -p bed ${uniqueFragmentsMap['transposition_sites_file']}
 	"""
 }
 
@@ -771,7 +788,7 @@ process callPeaksProcess {
     errorStrategy onError
     cpus callPeaks.max_cores
     memory "${callPeaks.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:python/2.7.3:numpy/1.8.1:setuptools/25.1.1:MACS/2.1.0'
+	module 'openjdk/latest:modules:modules-init:modules-gs:python/2.7.3:numpy/1.8.1:setuptools/25.1.1:MACS/2.1.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.narrowPeak.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.xls", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-summits.bed", mode: 'copy'
@@ -788,7 +805,7 @@ process callPeaksProcess {
 	"""
     # We used to add --shift -100 and --extsize, but the regions are now pre-shifted and extended
     # as output by other stages (ajh).
-	macs2 callpeak -t ${inBed} \
+	${callPeaks.macs2} callpeak -t ${inBed} \
 		-f BED \
 		-g ${callPeaksMap['macs_genome']} \
 		--nomodel \
@@ -837,7 +854,7 @@ process mergePeaksProcess {
     errorStrategy onError
     cpus mergePeaks.max_cores
     memory "${mergePeaks.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
+	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
 
 	input:
@@ -851,7 +868,7 @@ process mergePeaksProcess {
     zcat ${inBed} \
         | cut -f1-3 \
         | sort -k1,1V -k2,2n -k3,3n \
-        | bedtools merge -i - \
+        | ${commonValue.bedtools} merge -i - \
         | sort -k1,1V -k2,2n -k3,3n > ${mergePeaksMap['outBed']}
 	"""
 }
@@ -885,7 +902,7 @@ process makeWindowedGenomeIntervalsProcess {
     errorStrategy onError
     cpus windowGenomeIntervals.max_cores
     memory "${windowGenomeIntervals.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
+	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*genomic_windows.bed", mode: 'copy'
 
 	input:
@@ -896,7 +913,7 @@ process makeWindowedGenomeIntervalsProcess {
         
 	script:
 	"""
-    bedtools makewindows \
+    ${commonValue.bedtools} makewindows \
         -g ${inGenomeSizes} \
         -w ${inGenomeSizesMap['windowSize']} \
         > ${inGenomeSizesMap['outGenomicWindows']}
@@ -924,7 +941,7 @@ process makePromoterSumIntervalsProcess {
     errorStrategy onError
     cpus promoterSumInterval.max_cores
     memory "${promoterSumInterval.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
+	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions.bed.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions_note.txt", mode: 'copy'
 
@@ -944,10 +961,10 @@ process makePromoterSumIntervalsProcess {
 
         else
         """
-        bedtools closest \
+        ${commonValue.bedtools} closest \
             -d \
             -a ${inPath} \
-            -b <(bedtools window \
+            -b <(${commonValue.bedtools} window \
                 -sw \
                 -l ${inMap['proximalUpstream']} \
                 -r ${inMap['proximalDownstream']} \
@@ -994,7 +1011,7 @@ process makeMergedPeakRegionCountsProcess {
     errorStrategy onError
     cpus mergedPeakRegionCounts.max_cores
     memory "${mergedPeakRegionCounts.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9:bedtools/2.26.0'
+	module 'openjdk/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-peak_counts.txt", mode: 'copy'
 
 	input:
@@ -1013,12 +1030,12 @@ process makeMergedPeakRegionCountsProcess {
     TEMP_REGION_FILE="${inMergedPeaksMap['sample']}-temp_regions.gz"
     
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
-    bedtools slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${mergedPeakRegionCounts.flanking_distance} \
-    | bedtools merge -i stdin \
+    ${commonValue.bedtools} slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${mergedPeakRegionCounts.flanking_distance} \
+    | ${commonValue.bedtools} merge -i stdin \
     | gzip > \${TEMP_REGION_FILE}
 
     python ${script_dir}/get_region_counts.py \
-        --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
+        --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
         --output_file ${inMergedPeaksMap['peakCountsOut']}
 
     rm \${TEMP_REGION_FILE}
@@ -1051,7 +1068,7 @@ process makeTssRegionCountsProcess {
 	penv 'serial'
 	cpus tssRegionCounts.max_cores
 	memory "${tssRegionCounts.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9:bedtools/2.26.0'
+	module 'openjdk/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-tss_counts.txt", mode: 'copy'
 
     input:
@@ -1071,12 +1088,12 @@ process makeTssRegionCountsProcess {
 
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
 
-    bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${tssRegionCounts.flanking_distance} \
-    | bedtools merge -i stdin \
+    ${commonValue.bedtools} slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${tssRegionCounts.flanking_distance} \
+    | ${commonValue.bedtools} merge -i stdin \
     | gzip > \${TEMP_REGION_FILE}
 
     python ${script_dir}/get_region_counts.py \
-        --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
+        --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
         --output_file ${inTssRegionMap['tssCountsOut']}
 
     rm \${TEMP_REGION_FILE}
@@ -1113,7 +1130,7 @@ process makeCountReportsProcess {
     errorStrategy onError
     cpus countReports.max_cores
     memory "${countReports.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:R/3.6.1'
+	module 'openjdk/latest:modules:modules-init:modules-gs:R/3.6.1'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-count_report.txt", mode: 'copy'
 
 	input:
@@ -1155,7 +1172,7 @@ process callCellsProcess {
     errorStrategy onError
     cpus callCells.max_cores
     memory "${callCells.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs'
+	module 'openjdk/latest:modules:modules-init:modules-gs'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells.txt", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_whitelist.txt", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_stats.json", mode: 'copy'
@@ -1220,7 +1237,7 @@ process getPerBaseCoverageTssProcess {
     errorStrategy onError
     cpus perBaseCoverageTss.max_cores
     memory "${perBaseCoverageTss.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
+	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "per_base_tss_region_coverage" ) }, pattern: "*-tss_region_coverage.txt.gz", mode: 'copy'
 
 	input:
@@ -1238,8 +1255,8 @@ process getPerBaseCoverageTssProcess {
     # First get 2kb regions surrounding TSSs (not strand-specific here)
     # then calculate per-base coverage with bedtools
     # then write any non-zero entries to a file
-    bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${perBaseCoverageTss.flanking_distance}  \
-    | bedtools coverage -sorted -d -a stdin -b ${inTranspositionSites} \
+    ${commonValue.bedtools} slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${perBaseCoverageTss.flanking_distance}  \
+    | ${commonValue.bedtools} coverage -sorted -d -a stdin -b ${inTranspositionSites} \
     | awk '{{ if (\$8 > 0) print \$0 }}' \
     | gzip > \${TEMP_OUTPUT_FILE}
 
@@ -1281,7 +1298,7 @@ process makePeakMatrixProcess {
     errorStrategy onError
     cpus peakMatrix.max_cores
     memory "${peakMatrix.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6 pigz/latest'
+	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6 pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-peak_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
@@ -1300,7 +1317,7 @@ process makePeakMatrixProcess {
     source ${script_dir}/python_env/bin/activate
 
     python ${script_dir}/generate_sparse_matrix.py \
-    --transposition_sites_intersect <(bedtools intersect -sorted -a ${inMergedPeaks} -b ${inTranspositionSites} -wa -wb) \
+    --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inMergedPeaks} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inMergedPeaks} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output ${inMergedPeaksMap['outPeakMatrix']}
@@ -1332,7 +1349,7 @@ process makeWindowMatrixProcess {
     errorStrategy onError
     cpus windowMatrix.max_cores
     memory "${windowMatrix.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6:pigz/latest'
+	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6:pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-window_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
@@ -1350,7 +1367,7 @@ process makeWindowMatrixProcess {
     source ${script_dir}/python_env/bin/activate
 
     python ${script_dir}/generate_sparse_matrix.py \
-    --transposition_sites_intersect <(bedtools intersect -sorted -a ${inWindowedIntervals} -b ${inTranspositionSites} -wa -wb) \
+    --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inWindowedIntervals} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inWindowedIntervals} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output ${inWindowedIntervalsMap['outWindowMatrix']}
@@ -1369,7 +1386,7 @@ getUniqueFragmentsOutChannelTranspositionSitesCopy07
 
 makePromoterSumIntervalsOutChannel
     .toList()
-    .flatMap { makePromoterMatrixChannelSetupGeneRegions( it, sampleSortedNames ) }
+    .flatMap { makePromoterMatrixChannelSetupGeneRegions( it, sampleSortedNames, sampleGenomeMap ) }
     .set { makePromoterMatrixInChannelGeneRegions }
 
 callCellsOutChannelCalledCellsWhitelistCopy03
@@ -1382,7 +1399,7 @@ process makePromoterMatrixProcess {
     errorStrategy onError
     cpus promoterMatrix.max_cores
     memory "${promoterMatrix.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6:pigz/latest'
+	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6:pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-promoter_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
@@ -1401,10 +1418,15 @@ process makePromoterMatrixProcess {
     source ${script_dir}/python_env/bin/activate
 
     python ${script_dir}/generate_sparse_matrix.py \
-    --transposition_sites_intersect <(bedtools intersect -sorted -a ${inGeneRegions} -b ${inTranspositionSites} -wa -wb) \
+    --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inGeneRegions} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inGeneRegions} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output ${inGeneRegionsMap['outPromoterMatrix']}
+    mv ${inGeneRegionsMap['inPromoterMatrixRows']} promoter_matrix_rows.txt.temp
+    ${script_dir}/add_gene_metadata.py --in_promoter_matrix_row_name_file promoter_matrix_rows.txt.temp \
+                                       --gene_metadata_file ${inGeneRegionsMap['inGeneBodiesGeneMap']} \
+                                       --out_promoter_matrix_row_name_file ${inGeneRegionsMap['inPromoterMatrixRows']}
+    rm promoter_matrix_rows.txt.temp
 	"""
 }
 
@@ -1475,7 +1497,7 @@ process summarizeCellCallsProcess {
     errorStrategy onError
     cpus summarizeCellCalls.max_cores
     memory "${summarizeCellCalls.memory} GB"
-    module 'java/latest:modules:modules-init:modules-gs'
+    module 'openjdk/latest:modules:modules-init:modules-gs'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.pdf", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.stats.txt", mode: 'copy'
 
@@ -1523,7 +1545,7 @@ process getPerCellInsertSizesProcess {
     errorStrategy onError
     cpus perCellInsertSizes.max_cores
     memory "${perCellInsertSizes.memory} GB"
-    module 'java/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9'
+    module 'openjdk/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
     input:
@@ -1571,7 +1593,7 @@ process getBandingScoresProcess {
     penv 'serial'
     cpus bandingScores.max_cores
     memory "${bandingScores.memory} GB"
-    module 'java/latest:modules:modules-init:modules-gs:xxx'
+    module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
     input:
@@ -1613,7 +1635,7 @@ process callMotifsProcess {
 	penv 'serial'
 	cpus callMotifs.max_cores
 	memory "${callMotifs.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:xxx'
+	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
@@ -1673,7 +1695,7 @@ process makeMotifMatrixProcess {
 	penv 'serial'
 	cpus motifMatrix.max_cores
 	memory "${motifMatrix.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:xxx'
+	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
@@ -1731,7 +1753,7 @@ process makeReducedDimensionMatrixProcess {
 	penv 'serial'
 	cpus reducedDimensionMatrix.max_cores
 	memory "${reducedDimensionMatrix.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:xxx'
+	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
@@ -1802,7 +1824,7 @@ process makeCisTopicModelsProcess {
 	penv 'serial'
 	cpus cisTopicModels.max_cores
 	memory "${cisTopicModels.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:xxx'
+	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
@@ -1857,7 +1879,7 @@ process template {
 	penv 'serial'
 	cpus template.max_cores
 	memory "${template.memory} GB"
-	module 'java/latest:modules:modules-init:modules-gs:xxx'
+	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
 
 	input:
 	xxx
@@ -3819,7 +3841,7 @@ def makePromoterMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames
 }
 
 
-def makePromoterMatrixChannelSetupGeneRegions( inPaths, sampleSortedNames ) {
+def makePromoterMatrixChannelSetupGeneRegions( inPaths, sampleSortedNames, sampleGenomeMap ) {
     /*
     ** Check for expected bed files.
     */
@@ -3838,7 +3860,12 @@ def makePromoterMatrixChannelSetupGeneRegions( inPaths, sampleSortedNames ) {
     sampleSortedNames.each { aSample ->
         def outPromoterMatrix = aSample + '-promoter_matrix.mtx.gz'
         def inGenomicIntervals = aSample + '-gene_regions.bed.gz'
-        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample, 'outPromoterMatrix': outPromoterMatrix ] )
+        def inGeneBodiesGeneMap = sampleGenomeMap[aSample]['gene_bodies_gene_map']
+        def inPromoterMatrixRows = aSample + '-promoter_matrix.rows.txt'
+        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample,
+                                                              'inGeneBodiesGeneMap': inGeneBodiesGeneMap,
+                                                              'inPromoterMatrixRows': inPromoterMatrixRows,
+                                                              'outPromoterMatrix': outPromoterMatrix ] )
         outTuples.add( tuple )
     }
     

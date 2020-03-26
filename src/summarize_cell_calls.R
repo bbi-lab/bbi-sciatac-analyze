@@ -106,21 +106,21 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   if (args$barnyard) {
     message('-> loading window matrix to calculate doublet stats...')
     sample_window_matrix = load_mtx_file(args$window_matrices[[i]])
-    hg19_counts = Matrix::colSums(sample_window_matrix[grepl('hg19', rownames(sample_window_matrix)),])
-    mm9_counts = Matrix::colSums(sample_window_matrix[grepl('mm9', rownames(sample_window_matrix)),])
+    human_counts = Matrix::colSums(sample_window_matrix[grepl('HUMAN_', rownames(sample_window_matrix)),])
+    mouse_counts = Matrix::colSums(sample_window_matrix[grepl('MOUSE_', rownames(sample_window_matrix)),])
 
-    if (sum(hg19_counts) == 0) {
-      stop('No hg19 counts found. Chromosomes must start with hg19 in name (e.g. hg19chr19) for human and mm9 for mouse.')
+    if (sum(human_counts) == 0) {
+      stop('No human counts found. Chromosomes must start with HUMAN_ in name (e.g. HUMAN_19) for human and MOUSE_ for mouse.')
     }
-    if (sum(mm9_counts) == 0) {
-      stop('No mm9 counts found. Chromosomes must start with mm9 in name (e.g. mm9chr19) for mouse and hg19 for human.')
+    if (sum(mouse_counts) == 0) {
+      stop('No mouse counts found. Chromosomes must start with MOUSE_ in name (e.g. MOUSE_19) for mouse and HUMAN_ for human.')
     }
 
-    barnyard_df = data.frame(cell=names(mm9_counts), hg19=hg19_counts, mm9=mm9_counts)
+    barnyard_df = data.frame(cell=names(mouse_counts), hsapiens=human_counts, mmusculus=mouse_counts)
 
     # Cells with > 90% of one genome vs. other are singlets
-    human_cell = with(barnyard_df, hg19/(hg19 + mm9) > DOUBLET_PERCENTAGE_THRESHOLD)
-    mouse_cell = with(barnyard_df, mm9/(hg19 + mm9) > DOUBLET_PERCENTAGE_THRESHOLD)
+    human_cell = with(barnyard_df, hsapiens/(hsapiens + mmusculus) > DOUBLET_PERCENTAGE_THRESHOLD)
+    mouse_cell = with(barnyard_df, mmusculus/(hsapiens + mmusculus) > DOUBLET_PERCENTAGE_THRESHOLD)
 
     # Doublets get colored in red
     barnyard_df$color = 'black'
@@ -248,7 +248,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
 
   # For barnyard sub out TSS enrichment plot for barnyard plot
   if (args$barnyard) {
-    plot(barnyard_df$hg19,barnyard_df$mm9,pch=20,xlab="Human reads",ylab="Mouse reads", col=barnyard_df$color)
+    plot(barnyard_df$hsapiens,barnyard_df$mmusculus,pch=20,xlab="Human reads",ylab="Mouse reads", col=barnyard_df$color)
     abline(a=0, b=1-DOUBLET_PERCENTAGE_THRESHOLD,lwd=2,lty="dashed", col='lightgrey')
     abline(a=0, b=1/(1-DOUBLET_PERCENTAGE_THRESHOLD),lwd=2,lty="dashed", col='lightgrey')
 
