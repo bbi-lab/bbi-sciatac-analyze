@@ -621,7 +621,8 @@ sortChromosomeSizeOutChannel
     .into { sortChromosomeSizeOutChannelCopy01;
             sortChromosomeSizeOutChannelCopy02;
             sortChromosomeSizeOutChannelCopy03;
-            sortChromosomeSizeOutChannelCopy04 }
+            sortChromosomeSizeOutChannelCopy04;
+            sortChromosomeSizeOutChannelCopy05 }
 
 
 /*
@@ -956,7 +957,7 @@ process makePromoterSumIntervalsProcess {
         if( inMap['hasGeneScoreBed'] == 1 )
         """
         zcat ${inMap['inBedFile']} | sort -k1,1V -k2,2n -k3,3n | gzip > ${inMap['outBed']}
-        echo "gene score bed file was used to define gene regions" > ${inMap['sample']}-gene_regions_note.txt
+        echo "Gene score bed file was used to define gene regions" > ${inMap['sample']}-gene_regions_note.txt
         """
 
         else
@@ -976,7 +977,7 @@ process makePromoterSumIntervalsProcess {
         | cut -f 1,2,3,7 \
         | sort -k1,1V -k2,2n -k3,3n \
         | uniq | gzip > ${inMap['outBed']}
-        echo "TSS definitions and peak locations was used to define gene regions (check this description)" > ${inMap['sample']}-gene_regions_note.txt
+        echo "TSS definitions and peak locations were used to define gene regions (check this description)" > ${inMap['sample']}-gene_regions_note.txt
         """
 }
 
@@ -1394,6 +1395,11 @@ callCellsOutChannelCalledCellsWhitelistCopy03
     .flatMap { makePromoterMatrixChannelSetupCellWhitelist( it, sampleSortedNames ) }
     .set { makePromoterMatrixInChannelCellWhitelist }
 
+sortChromosomeSizeOutChannelCopy05
+    .toList()
+    .flatMap { makePromoterMatrixChannelSetupChromosomeSizes( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { makePromoterMatrixChannelInChannelChromosomeSizes }
+
 process makePromoterMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
@@ -1407,7 +1413,7 @@ process makePromoterMatrixProcess {
     set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makePromoterMatrixInChannelTranspositionSites
     set file( inGeneRegions ), inGeneRegionsMap from makePromoterMatrixInChannelGeneRegions
     set file( inCellWhitelist ), inCellWhitelistMap from makePromoterMatrixInChannelCellWhitelist
-
+    set file( inChromosomeSizes ), inChromosomeSizesMap from makePromoterMatrixChannelInChannelChromosomeSizes
 	output:
 	file( "*-promoter_matrix.mtx.gz" ) into makePromoterMatrixOutChannel
     file( "*.txt" ) into makePromoterMatrixOutChannelDeadend
@@ -1418,15 +1424,14 @@ process makePromoterMatrixProcess {
     source ${script_dir}/python_env/bin/activate
 
     python ${script_dir}/generate_sparse_matrix.py \
-    --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inGeneRegions} -b ${inTranspositionSites} -wa -wb) \
+    --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -g ${inChromosomeSizes} -a ${inGeneRegions} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inGeneRegions} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output ${inGeneRegionsMap['outPromoterMatrix']}
-    mv ${inGeneRegionsMap['inPromoterMatrixRows']} promoter_matrix_rows.txt.temp
-    ${script_dir}/add_gene_metadata.py --in_promoter_matrix_row_name_file promoter_matrix_rows.txt.temp \
+    mv ${inGeneRegionsMap['inPromoterMatrixRows']} promoter_matrix_rows.txt.no_metadata
+    ${script_dir}/add_gene_metadata.py --in_promoter_matrix_row_name_file promoter_matrix_rows.txt.no_metadata \
                                        --gene_metadata_file ${inGeneRegionsMap['inGeneBodiesGeneMap']} \
                                        --out_promoter_matrix_row_name_file ${inGeneRegionsMap['inPromoterMatrixRows']}
-    rm promoter_matrix_rows.txt.temp
 	"""
 }
 
@@ -3918,6 +3923,47 @@ def makePromoterMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
         println "aPath: ${aPath}"
         
     }
+    */
+
+    return( outTuples )
+}
+
+
+/*
+** Set up a channel for filtering sites in making promoter matrices.
+** This channel has the chromosome sizes file.
+*/
+def makePromoterMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.chromosome_sizes.sorted.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inFileName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.chromosome_sizes.sorted.txt'
+        def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    /*
+    ** diagnostics
+    println "makeMergedPeakRegionCountsChannelSetupChromosomeSizes chromosome sizes files"
+    outTuples.each { aTuple ->
+        def aPath = aTuple[0]
+        def aFile = aPath.getFileName().toString()
+        println "aSample: ${aTuple[1]['sample']}"
+        println "aFile: ${aFile}"
+        println "aPath: ${aPath}"
     */
 
     return( outTuples )

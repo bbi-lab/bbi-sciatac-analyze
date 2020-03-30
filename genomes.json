@@ -6,8 +6,8 @@
         "whitelist_regions": "/net/bbi/vol1/data/genomes/barnyard_atac/whitelist_regions.bed",
         "tss": "/net/bbi/vol1/data/genomes/barnyard_atac/tss.bed.gz",
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes/barnyard_atac/gene_bodies_gene_map.txt",
-        "bowtie_index": "/net/bbi/vol1/data/genomes/barnyard_atac/barnyard"
-        "macs_genome": 4.57e9,
+        "bowtie_index": "/net/bbi/vol1/data/genomes/barnyard_atac/barnyard",
+        "macs_genome": "4.57e9"
     },
     "human": {
         "name": "human",
@@ -17,9 +17,9 @@
         "gene_score_bed": "/net/bbi/vol1/data/genomes/human_atac/gene_bodies.plus_2kb_upstream.bed.gz",
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes/human_atac/gene_bodies_gene_map.txt",
         "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
-        "fasta": "/net/bbi/vol1/data/genomes/human_atac/xxx"
+        "fasta": "/net/bbi/vol1/data/genomes/human_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/human_atac/human",
-        "macs_genome": "hs",
+        "macs_genome": "hs"
     },
     "macaque": {
         "name": "macaque",
@@ -29,9 +29,9 @@
         "gene_score_bed": "/net/bbi/vol1/data/genomes/macaque_atac/gene_bodies.plus_2kb_upstream.bed.gz",
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes/macaque_atac/gene_bodies_gene_map.txt",
         "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
-        "fasta": "/net/bbi/vol1/data/genomes/macaque_atac/xxx"
+        "fasta": "/net/bbi/vol1/data/genomes/macaque_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/macaque_atac/macaque",
-        "macs_genome": "2.94e9",
+        "macs_genome": "2.94e9"
     },
     "mouse": {
         "name": "mouse",
@@ -41,8 +41,8 @@
         "gene_score_bed": "/net/bbi/vol1/data/genomes/mouse_atac/gene_bodies.plus_2kb_upstream.bed.gz",
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes/mouse_atac/gene_bodies_gene_map.txt",
         "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
-        "fasta": "/net/bbi/vol1/data/genomes/mouse_atac/xxx"
+        "fasta": "/net/bbi/vol1/data/genomes/mouse_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/mouse_atac/mouse",
-        "macs_genome": "mm",
+        "macs_genome": "mm"
     }
 }

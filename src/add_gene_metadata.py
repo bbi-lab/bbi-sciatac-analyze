@@ -51,8 +51,7 @@ if __name__ == '__main__':
     row_names = load_row_names(open_file(args.in_promoter_matrix_row_name_file))
     out_file = open(args.out_promoter_matrix_row_name_file,'w')
     for row in row_names:
-        if( not row in gene_metadata ):
-            print('Error: gene \'%s\' not in gene map file' % (row), file=sys.stderr)
-            sys.exit( -1 )
-        print( '%s\t%s\t%s' % (row, gene_metadata[row]['gene_name'], gene_metadata[row]['gene_biotype']), file=out_file)
-
+        if( row in gene_metadata ):
+            print( '%s\t%s\t%s' % (row, gene_metadata[row]['gene_name'], gene_metadata[row]['gene_biotype']), file=out_file)
+        else:
+            print( '%s\t.\t.' % (row), file=out_file)
