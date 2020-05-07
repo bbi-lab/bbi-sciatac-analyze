@@ -1,6 +1,6 @@
-# bbi-sciatac-demux
+# bbi-sciatac-demux and bbi-sciatac-analyze
 
-bbi-sciatac-demux implements Andrew Hill's sci-ATAC-seq demultiplexing processing pipeline in the NextFlow domain-specific language.
+*bbi-sciatac-demux* implements Andrew Hill's sci-ATAC-seq demultiplexing processing pipeline in the NextFlow domain-specific language and *bbi-sciatac-analyze* implements Andrew Hill's sci-ATAC-seq analysis processing pipeline.
 
 ## Requirements
 
@@ -29,7 +29,7 @@ The above is a one-time installation setup, or may be required if you need to up
 
 #### Nextflow
 
-Nextflow is a domain-specific language specification for writing scientific processing pipeline scripts and it is a program written in Apache Groovy for running such scripts. Important features offered by Nextflow include support for distributed computing on the Univa Grid Engine and the ability to resume processing at a failed stage processing step.
+Nextflow is both a language specification for writing scientific processing pipeline scripts and a program for running such scripts. Important features offered by Nextflow include support for distributed computing on the Univa Grid Engine and the ability to resume processing at a failed stage processing step.
 
 The Nextflow pipeline components required for the bbi-sciatac pipeline consist of the
 
@@ -42,9 +42,11 @@ The Nextflow pipeline components required for the bbi-sciatac pipeline consist o
 
 #### bbi-sciatac pipeline
 
-The bbi-sciatac-pipeline consists of a pair of Nextflow scripts. The first converts an Illumina bcl file to fastq files, corrects barcode errors, partitions reads into fastq files by sample, and trims off adapter sequence from the reads. The second script continues processing with read alignments through to making count matrices.
+The bbi-sciatac pipeline consists of a pair of Nextflow scripts. The first converts an Illumina bcl file to fastq files, corrects barcode errors, partitions reads into fastq files by sample, and trims off adapter sequence from the reads. The second script continues processing with read alignments through to making count matrices.
 
-The bbi-sciatac-demux repository includes a script called setup_sciatac.py, which sets up the required directories and files for the pipeline runs. The script prompts for required values and allows editing of values. The editable values consist of
+Note: I no longer support the *setup_sciatac.py* script. Instead, consider using the scripts *bbi-sciatac-demux/run.sciatac-demux.sh* and *bbi-sciatac-analyze/run.sciatac-analyze.sh* I leave *setup_sciatac.py* here because it may have some value as a guide for setting up scripts.
+
+The bbi-sciatac-demux repository includes a script called *setup_sciatac.py*, which sets up the required directories and files for the pipeline runs. The script prompts for required values and allows editing of values. The editable values consist of
 
 * Processing (parent) directory
 * Illumina run directory
@@ -55,7 +57,7 @@ The bbi-sciatac-demux repository includes a script called setup_sciatac.py, whic
 * Demux output directory
 * Analyze script name
 * Analyze output directory
-* Nextflow parameters filename
+* Nextflow parameters filename (for example, params.config)
 * Maximum number of CPUs
 * Maximum memory for bcl2fastq
 * Grid engine queue name (optional)
@@ -69,6 +71,7 @@ Additionally, you will need to set the following values in the script
 * analyzeNextflowScript, the path to the analyze Nextflow script, which is called main.nf.
 
 #### Samplesheet file
+
 The samplesheet is a tab-delimited file with the format:
 
 ```
@@ -84,17 +87,19 @@ The `sample_id` column can have whatever you want as an ID for each sample in th
 
 The `ranges` column specifies the range of `<N7 ligation indices>:<N7 PCR indices>:<N5 PCR indices>:<N5 ligation indices>` used for this run. Note that the N7/P7 indices are numbered by column and the N5/N7 indices are numbered by row. Multiple ranges for a barcode are separated by commas.
 
-There is a rudimentary script for converting a BBI CSV samplesheet to the required format in the directory bbi-sciatac-demux/samplesheet.
+There is a rudimentary script for converting a BBI CSV samplesheet to the required format in the *bbi-sciatac-demux/samplesheet* directory.
+
+Warning: sample names cannot have dashes in them, or any special character that does not appear typically in a Unix file name so such characters are converted to dots (any character other than 'a-z', 'A-Z', '0-9', '_',  and '.'). This is because the script adds the sample name to the main file name, separated by a dash, so that it can identify the sample based the filename. For example, the file 'sample1-RUN001_L001_R1.fastq.gz' is from a sample called 'sample1'.
 
 #### Genome files
 
-The required genome-related files are specified in the bbi-sciatac-analyze/genomes.json file. The required files include
+The required genome-related files are specified in the *bbi-sciatac-analyze/genomes.json* file. The required files include
 
 * bowtie genome indexes
 * genome whitelist regions
 * chromosome sizes
 
-The bbi-sciatac-analyze repository has some scripts for assisting with building these files in the genomes subdirectory. These scripts are from Andrew Hill.
+The *bbi-sciatac-analyze* repository has some scripts for assisting with building these files in the *genomes* subdirectory. These scripts are from Andrew Hill.
 
 #### nextflow.config file
 
@@ -112,7 +117,7 @@ Run the pipeline scripts in a cluster node with significant a significant memory
 qlogin -l mfree=16G
 ```
 
-Run the bash script 'run.demux.sh' first. After that finishes, run 'run.analyze.sh'.
+Run the bash script *run.demux.sh* first. After that finishes, run *run.analyze.sh*.
 
 ```
 bash run.demux.sh
@@ -121,6 +126,8 @@ bash run.demux.sh
 .
 bash run.analyze.sh
 ```
+
+The *bbi-sciatac-demux* pipeline creates the file *args.json* in the demux output directory. The *bbi-sciatac-analyze* pipeline script looks for *args.json* in the demux output directory, and uses it to read the trimmed fastq files from the *<sample_name>/fastqs_trim* sub-directory in the demux output directory, and continues the analysis starting with read alignments.
 
 #### Additional information
 
