@@ -1,0 +1,48 @@
+{
+    "barnyard": {
+        "name": "barnyard",
+        "barnyard": true,
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes_stage/barnyard/barnyard_atac/chromosome_sizes.txt",
+        "whitelist_regions": "/net/bbi/vol1/data/genomes_stage/barnyard/barnyard_atac/whitelist_regions.bed",
+        "tss": "/net/bbi/vol1/data/genomes_stage/barnyard/barnyard_atac/tss.bed.gz",
+        "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes_stage/barnyard/barnyard_atac/gene_bodies_gene_map.txt",
+        "bowtie_index": "/net/bbi/vol1/data/genomes_stage/barnyard/barnyard_atac/barnyard",
+        "macs_genome": "4.57e9"
+    },
+    "human": {
+        "name": "human",
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes_stage/human/human_atac/chromosome_sizes.txt",
+        "whitelist_regions": "/net/bbi/vol1/data/genomes_stage/human/human_atac/whitelist_regions.bed",
+        "tss": "/net/bbi/vol1/data/genomes_stage/human/human_atac/tss.bed.gz",
+        "gene_score_bed": "/net/bbi/vol1/data/genomes_stage/human/human_atac/gene_bodies.plus_2kb_upstream.bed.gz",
+        "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes_stage/human/human_atac/gene_bodies_gene_map.txt",
+        "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
+        "fasta": "/net/bbi/vol1/data/genomes_stage/human/human_atac/xxx",
+        "bowtie_index": "/net/bbi/vol1/data/genomes_stage/human/human_atac/human",
+        "macs_genome": "hs"
+    },
+    "macaque": {
+        "name": "macaque",
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/chromosome_sizes.txt",
+        "whitelist_regions": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/whitelist_regions.bed",
+        "tss": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/tss.bed.gz",
+        "gene_score_bed": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/gene_bodies.plus_2kb_upstream.bed.gz",
+        "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/gene_bodies_gene_map.txt",
+        "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
+        "fasta": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/xxx",
+        "bowtie_index": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/macaque",
+        "macs_genome": "2.94e9"
+    },
+    "mouse": {
+        "name": "mouse",
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/chromosome_sizes.txt",
+        "whitelist_regions": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/whitelist_regions.bed",
+        "tss": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/tss.bed.gz",
+        "gene_score_bed": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/gene_bodies.plus_2kb_upstream.bed.gz",
+        "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/gene_bodies_gene_map.txt",
+        "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
+        "fasta": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/xxx",
+        "bowtie_index": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/mouse",
+        "macs_genome": "mm"
+    }
+}
