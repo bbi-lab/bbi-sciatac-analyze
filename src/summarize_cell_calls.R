@@ -116,11 +116,11 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
       stop('No mouse counts found. Chromosomes must start with MOUSE_ in name (e.g. MOUSE_19) for mouse and HUMAN_ for human.')
     }
 
-    barnyard_df = data.frame(cell=names(mouse_counts), hsapiens=human_counts, mmusculus=mouse_counts)
+    barnyard_df = data.frame(cell=names(mouse_counts), human=human_counts, mouse=mouse_counts)
 
     # Cells with > 90% of one genome vs. other are singlets
-    human_cell = with(barnyard_df, hsapiens/(hsapiens + mmusculus) > DOUBLET_PERCENTAGE_THRESHOLD)
-    mouse_cell = with(barnyard_df, mmusculus/(hsapiens + mmusculus) > DOUBLET_PERCENTAGE_THRESHOLD)
+    human_cell = with(barnyard_df, human/(human + mouse) > DOUBLET_PERCENTAGE_THRESHOLD)
+    mouse_cell = with(barnyard_df, mouse/(human + mouse) > DOUBLET_PERCENTAGE_THRESHOLD)
 
     # Doublets get colored in red
     barnyard_df$color = 'black'
@@ -248,7 +248,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
 
   # For barnyard sub out TSS enrichment plot for barnyard plot
   if (args$barnyard) {
-    plot(barnyard_df$hsapiens,barnyard_df$mmusculus,pch=20,xlab="Human reads",ylab="Mouse reads", col=barnyard_df$color)
+    plot(barnyard_df$human,barnyard_df$mouse,pch=20,xlab="Human reads",ylab="Mouse reads", col=barnyard_df$color)
     abline(a=0, b=1-DOUBLET_PERCENTAGE_THRESHOLD,lwd=2,lty="dashed", col='lightgrey')
     abline(a=0, b=1/(1-DOUBLET_PERCENTAGE_THRESHOLD),lwd=2,lty="dashed", col='lightgrey')
 

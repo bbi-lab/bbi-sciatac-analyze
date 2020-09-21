@@ -44,7 +44,7 @@
 **      the problematic variable and its location in the code, which complicates
 **      greatly finding the error. As an example, which confused me greatly, is
 **
-**          bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b {perBaseCoverageTss.flanking_distance}  \
+**          bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.params.flanking_distance}  \
 **          | bedtools coverage -sorted -d -a stdin -b ${inTranspositionSites} \
 **          | awk '{{ if (\$8 > 0) print \$0 }}' \
 **          | gzip > \${TEMP_OUTPUT_FILE}
@@ -233,9 +233,11 @@ def timeNow = new Date()
 
 /*
 ** Where to find scripts.
+** Note: script_dir needs to be visible within Groovy functions
+**       so there is no 'def', which makes it global.
 */
-def pipeline_path="/net/gs/vol1/home/bge/eclipse-workspace/bbi-sciatac-analyze"
-def script_dir="${pipeline_path}/src"
+pipeline_path="$workflow.projectDir"
+script_dir="${pipeline_path}/src"
 
 /*
 ** Set errorStrategy directive policy.
@@ -269,6 +271,7 @@ params.max_cores = 16
 params.max_forks = null
 params.queue = null
 params.samples = null
+params.bowtie_cpus = 8
 params.bowtie_seed = null
 params.reads_threshold = null
 params.no_secondary = null
@@ -276,187 +279,6 @@ params.calculate_banding_scores = null
 params.topic_models = null
 params.topics = null
 
-
-/*
-** Internal parameters for values shared with more than
-** one process block.
-*/
-class CommonValue {
-    public def bedtools = "bedtools"
-    public def samtools = "samtools"
-}
-commonValue = new CommonValue()
-
-
-/*
-** Internal parameters organized a class for each process block.
-*/
-class BandingScores {
-    public def max_cores = 1
-    public def memory = 12
-}
-bandingScores = new BandingScores()
-
-class CallCells {
-    public def max_cores = 1
-    public def memory = 5
-    public def reads_threshold
-}
-callCells =  new CallCells()
-callCells.reads_threshold = params.reads_threshold
-
-class CallMotifs {
-    public def max_cores = 1
-    public def memory = 10
-}
-callMotifs = new CallMotifs()
-
-class CallPeaks {
-    public def max_cores = 1
-    public def memory = 16
-    public def macs2
-}
-callPeaks =  new CallPeaks()
-callPeaks.macs2 = "macs2"
-
-class CisTopicModels {
-    public def max_cores = 1
-    public def memory = 40
-}
-cisTopicModels = new CisTopicModels()
-
-class CountReports {
-     public def max_cores = 1
-    public def memory = 10
-}
-countReports =  new CountReports()
-
-class GetUniqueFragments {
-    public def max_cores = 1
-    public def memory = 30
-    public def tabix
-}
-getUniqueFragments =  new GetUniqueFragments()
-getUniqueFragments.tabix = "tabix"
-
-class MergeBams {
-    public def max_cores = 8
-    public def memory = 16
-    public def sambamba
-}
-mergeBams =  new MergeBams()
-mergeBams.sambamba = "sambamba"
-
-class MergedPeakRegionCounts {
-    public def max_cores = 1
-    public def memory = 20
-    public def flanking_distance = 0
-}
-mergedPeakRegionCounts =  new MergedPeakRegionCounts()
-
-class MergePeaks {
-    public def max_cores = 1
-    public def memory = 5
-}
-mergePeaks =  new MergePeaks()
-
-class MotifMatrix {
-    public def max_cores = 1
-    public def memory = 10
-}
-motifMatrix = new MotifMatrix()
-
-class PeakMatrix {
-    public def max_cores = 1
-    public def memory = 96
-}
-peakMatrix =  new PeakMatrix()
-
-class PerBaseCoverageTss {
-    public def max_cores = 1
-    public def memory = 15
-    public def flanking_distance = 1000
-}
-perBaseCoverageTss = new PerBaseCoverageTss()
-
-class PerCellInsertSizes {
-    public def max_cores = 1
-    public def memory = 12
-}
-perCellInsertSizes =  new PerCellInsertSizes()
-
-class PromoterMatrix {
-    public def max_cores = 1
-    public def memory = 64
-}
-promoterMatrix =  new PromoterMatrix()
-
-class PromoterSumInterval {
-    public def max_cores = 1
-    public def memory = 10
-    public def proximalUpstream = 1000
-    public def proximalDownstream = 500
-    public def peakToTssDistanceThreshold = 30000
-}
-promoterSumInterval = new PromoterSumInterval()
-
-class ReducedDimensionMatrix {
-    public def max_cores = 1
-    public def memory = 16
-}
-reducedDimensionMatrix = new ReducedDimensionMatrix()
-
-class RunAlign {
-    public def max_cores
-    public def total_memory
-    public def memory
-    public def seed
-    public def bowtie2
-}
-runAlign = new RunAlign()
-runAlign.bowtie2 = "/net/bbi/vol1/data/sw_install/bowtie2-2.4.1/bin/bowtie2"
-runAlign.max_cores = params.max_cores
-runAlign.total_memory =  36 + 0.25 * runAlign.max_cores
-runAlign.memory = runAlign.total_memory / runAlign.max_cores
-runAlign.seed = params.bowtie_seed
-
-class SortChromosomeSize {
-    public def max_cores = 1
-    public def memory = 8
-}
-sortChromosomeSize =  new SortChromosomeSize()
-
-class SortTssBed {
-    public def max_cores = 1
-    public def memory = 8
-}
-sortTssBed =  new SortTssBed()
-
-class SummarizeCellCalls {
-    public def max_cores = 1
-    public def memory = 10
-}
-summarizeCellCalls =  new SummarizeCellCalls()
-
-class TssRegionCounts {
-    public def max_cores = 1
-    public def memory = 20
-    public def flanking_distance = 1000
-}
-tssRegionCounts = new TssRegionCounts()
-
-class WindowGenomeIntervals {
-    public def max_cores = 1
-    public def memory = 20
-    public def genomicIntervalWindowSize = 5000
-}
-windowGenomeIntervals = new WindowGenomeIntervals()
-
-class WindowMatrix {
-    public def max_cores = 1
-    public def memory = 72
-}
-windowMatrix =  new WindowMatrix()
 
 /*
 ** Print usage when run with --help parameter.
@@ -571,8 +393,6 @@ Channel
 process sortTssBedProcess {
     cache 'lenient'
     errorStrategy onError
-    cpus sortTssBed.max_cores
-    memory "${sortTssBed.memory} GB"
 	publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.bed.gz", mode: 'copy'
 	
 	input:
@@ -601,8 +421,6 @@ Channel
 process sortChromosomeSizeProcess {
     cache 'lenient'
     errorStrategy errorStrategy { sleep(Math.pow(2, task.attempt) * 200); return 'retry' }
-    cpus sortChromosomeSize.max_cores
-    memory "${sortChromosomeSize.memory} GB"
 	publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.txt", mode: 'copy'
 	
 	input:
@@ -622,7 +440,9 @@ sortChromosomeSizeOutChannel
             sortChromosomeSizeOutChannelCopy02;
             sortChromosomeSizeOutChannelCopy03;
             sortChromosomeSizeOutChannelCopy04;
-            sortChromosomeSizeOutChannelCopy05 }
+            sortChromosomeSizeOutChannelCopy05;
+            sortChromosomeSizeOutChannelCopy06;
+            sortChromosomeSizeOutChannelCopy07 }
 
 
 /*
@@ -634,17 +454,18 @@ sortChromosomeSizeOutChannel
 /*
 ** Run alignments.
 */
+bowtie_cpus = params.bowtie_cpus < 8 ? params.bowtie_cpus : 8
+bowtie_memory = ( 36 + 0.25 * bowtie_cpus ) / bowtie_cpus
+
 Channel
 	.fromList( runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) )
 	.set { runAlignInChannel }
 
 process runAlignProcess {
+    cpus bowtie_cpus
+    memory "${bowtie_memory}G"
 	cache 'lenient'
     errorStrategy onError
-	penv 'serial'
-	cpus runAlign.max_cores
-	memory "${runAlign.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:tbb/2019_U5:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
  
 	input:
@@ -655,14 +476,14 @@ process runAlignProcess {
 
 	script:
 	"""
-	${runAlign.bowtie2} -3 1 \
+	bowtie2 -3 1 \
 		-X 2000 \
-		-p ${runAlign.max_cores} \
+		-p ${task.cpus} \
 		-x ${alignMap['genome_index']} \
 		-1 ${alignMap['fastq1']} \
 		-2 ${alignMap['fastq2']} ${alignMap['seed']} \
-		| ${commonValue.samtools} view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > ${alignMap['bamfile']}.tmp.bam
-        ${commonValue.samtools} sort -T ${alignMap['bamfile']}.sorttemp --threads 4 ${alignMap['bamfile']}.tmp.bam -o ${alignMap['bamfile']}
+		| samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > ${alignMap['bamfile']}.tmp.bam
+        samtools sort -T ${alignMap['bamfile']}.sorttemp --threads 4 ${alignMap['bamfile']}.tmp.bam -o ${alignMap['bamfile']}
         rm ${alignMap['bamfile']}.tmp.bam
 	"""
 }
@@ -679,10 +500,6 @@ runAlignOutChannel
 process mergeBamsProcess {
     cache 'lenient'
     errorStrategy onError
-	penv 'serial'
-	cpus mergeBams.max_cores
-	memory "${mergeBams.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:sambamba/0.6.5:zlib/1.2.6:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bam", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bai", mode: 'copy'
 
@@ -694,8 +511,8 @@ process mergeBamsProcess {
 	
 	script:
 	"""
-	${mergeBams.sambamba} merge --nthreads 8 ${outBam} ${inBams}
-	${commonValue.samtools} index ${outBam}
+	sambamba merge --nthreads 8 ${outBam} ${inBams}
+	samtools index ${outBam}
 	"""
 }
 
@@ -715,9 +532,6 @@ mergeBamsOutChannelBam
 process getUniqueFragmentsProcess {
     cache 'lenient'
     errorStrategy onError
-    cpus getUniqueFragments.max_cores
-	memory "${getUniqueFragments.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:tabix/0.2.6'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-transposition_sites.bed.gz*", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-fragments.txt.gz*", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-insert_sizes.txt", mode: 'copy'
@@ -748,10 +562,10 @@ process getUniqueFragmentsProcess {
 
 	# Index BAM file / bgzip tabix index for fragments file and transposition_sites BED
 	bgzip -f \$fragments_uncompressed
-	${getUniqueFragments.tabix} -p bed ${uniqueFragmentsMap['fragments_file']}
+	tabix -p bed ${uniqueFragmentsMap['fragments_file']}
 
 	bgzip -f \$transposition_sites_uncompressed
-	${getUniqueFragments.tabix} -p bed ${uniqueFragmentsMap['transposition_sites_file']}
+	tabix -p bed ${uniqueFragmentsMap['transposition_sites_file']}
 	"""
 }
 
@@ -787,9 +601,6 @@ getUniqueFragmentsOutChannelTranspositionSitesCopy01
 process callPeaksProcess {
     cache 'lenient'
     errorStrategy onError
-    cpus callPeaks.max_cores
-    memory "${callPeaks.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:python/2.7.3:numpy/1.8.1:setuptools/25.1.1:MACS/2.1.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.narrowPeak.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.xls", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-summits.bed", mode: 'copy'
@@ -806,7 +617,7 @@ process callPeaksProcess {
 	"""
     # We used to add --shift -100 and --extsize, but the regions are now pre-shifted and extended
     # as output by other stages (ajh).
-	${callPeaks.macs2} callpeak -t ${inBed} \
+	macs2 callpeak -t ${inBed} \
 		-f BED \
 		-g ${callPeaksMap['macs_genome']} \
 		--nomodel \
@@ -853,9 +664,6 @@ callPeaksOutChannelNarrowPeakCopy01
 process mergePeaksProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus mergePeaks.max_cores
-    memory "${mergePeaks.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
 
 	input:
@@ -869,7 +677,7 @@ process mergePeaksProcess {
     zcat ${inBed} \
         | cut -f1-3 \
         | sort -k1,1V -k2,2n -k3,3n \
-        | ${commonValue.bedtools} merge -i - \
+        | bedtools merge -i - \
         | sort -k1,1V -k2,2n -k3,3n > ${mergePeaksMap['outBed']}
 	"""
 }
@@ -892,18 +700,12 @@ mergePeaksOutChannel
 */
 sortChromosomeSizeOutChannelCopy01
     .toList()
-    .flatMap { makeWindowedGenomeIntervalsChannelSetup( it,
-                                                        sampleSortedNames,
-                                                        sampleGenomeMap,
-                                                        windowGenomeIntervals.genomicIntervalWindowSize ) }
+    .flatMap { makeWindowedGenomeIntervalsChannelSetup( it, sampleSortedNames, sampleGenomeMap ) }
     .set { makeWindowedGenomeIntervalsInChannel }
 
 process makeWindowedGenomeIntervalsProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus windowGenomeIntervals.max_cores
-    memory "${windowGenomeIntervals.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*genomic_windows.bed", mode: 'copy'
 
 	input:
@@ -914,9 +716,9 @@ process makeWindowedGenomeIntervalsProcess {
         
 	script:
 	"""
-    ${commonValue.bedtools} makewindows \
+    bedtools makewindows \
         -g ${inGenomeSizes} \
-        -w ${inGenomeSizesMap['windowSize']} \
+        -w ${task.ext.window_size} \
         > ${inGenomeSizesMap['outGenomicWindows']}
 	"""
 }
@@ -929,19 +731,12 @@ process makeWindowedGenomeIntervalsProcess {
 */
 mergePeaksOutChannelCopy01
     .toList()
-    .flatMap { makePromoterSumIntervalsChannelSetup( it, 
-                                                     sampleSortedNames,
-                                                     sampleGenomeMap,
-                                                     promoterSumInterval.proximalDownstream,
-                                                     promoterSumInterval.proximalUpstream,
-                                                     promoterSumInterval.peakToTssDistanceThreshold ) }
+    .flatMap { makePromoterSumIntervalsChannelSetup( it, sampleSortedNames, sampleGenomeMap ) }
     .set { makePromoterSumIntervalsInChannel }
 
 process makePromoterSumIntervalsProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus promoterSumInterval.max_cores
-    memory "${promoterSumInterval.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions.bed.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions_note.txt", mode: 'copy'
@@ -962,18 +757,18 @@ process makePromoterSumIntervalsProcess {
 
         else
         """
-        ${commonValue.bedtools} closest \
+        bedtools closest \
             -d \
             -a ${inPath} \
-            -b <(${commonValue.bedtools} window \
+            -b <(bedtools window \
                 -sw \
-                -l ${inMap['proximalUpstream']} \
-                -r ${inMap['proximalDownstream']} \
+                -l ${task.ext.proximal_upstream} \
+                -r ${task.ext.proximal_downstream} \
                 -a ${inMap['tssFile']} \
                 -b ${inPath} \
                 | cut -f 1-6 \
                 | uniq ) \
-        | awk '{{ if (\$10 <= ${inMap['peakToTssDistanceThreshold']}) print \$0 }}' \
+        | awk '{{ if (\$10 <= ${task.ext.peak_to_tss_distance_threshold} ) print \$0 }}' \
         | cut -f 1,2,3,7 \
         | sort -k1,1V -k2,2n -k3,3n \
         | uniq | gzip > ${inMap['outBed']}
@@ -1010,9 +805,6 @@ sortChromosomeSizeOutChannelCopy02
 process makeMergedPeakRegionCountsProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus mergedPeakRegionCounts.max_cores
-    memory "${mergedPeakRegionCounts.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-peak_counts.txt", mode: 'copy'
 
 	input:
@@ -1031,12 +823,12 @@ process makeMergedPeakRegionCountsProcess {
     TEMP_REGION_FILE="${inMergedPeaksMap['sample']}-temp_regions.gz"
     
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
-    ${commonValue.bedtools} slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${mergedPeakRegionCounts.flanking_distance} \
-    | ${commonValue.bedtools} merge -i stdin \
+    bedtools slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance} \
+    | bedtools merge -i stdin \
     | gzip > \${TEMP_REGION_FILE}
 
     python ${script_dir}/get_region_counts.py \
-        --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
+        --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
         --output_file ${inMergedPeaksMap['peakCountsOut']}
 
     rm \${TEMP_REGION_FILE}
@@ -1066,10 +858,6 @@ sortChromosomeSizeOutChannelCopy03
 process makeTssRegionCountsProcess {
 	cache 'lenient'
     errorStrategy onError
-	penv 'serial'
-	cpus tssRegionCounts.max_cores
-	memory "${tssRegionCounts.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-tss_counts.txt", mode: 'copy'
 
     input:
@@ -1089,12 +877,12 @@ process makeTssRegionCountsProcess {
 
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
 
-    ${commonValue.bedtools} slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${tssRegionCounts.flanking_distance} \
-    | ${commonValue.bedtools} merge -i stdin \
+    bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance} \
+    | bedtools merge -i stdin \
     | gzip > \${TEMP_REGION_FILE}
 
     python ${script_dir}/get_region_counts.py \
-        --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
+        --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
         --output_file ${inTssRegionMap['tssCountsOut']}
 
     rm \${TEMP_REGION_FILE}
@@ -1129,9 +917,6 @@ makeTssRegionCountsOutChannel
 process makeCountReportsProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus countReports.max_cores
-    memory "${countReports.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:R/3.6.1'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-count_report.txt", mode: 'copy'
 
 	input:
@@ -1171,9 +956,6 @@ makeCountReportsOutChannelCopy01
 process callCellsProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus callCells.max_cores
-    memory "${callCells.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells.txt", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_whitelist.txt", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_stats.json", mode: 'copy'
@@ -1236,9 +1018,6 @@ sortChromosomeSizeOutChannelCopy04
 process getPerBaseCoverageTssProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus perBaseCoverageTss.max_cores
-    memory "${perBaseCoverageTss.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "per_base_tss_region_coverage" ) }, pattern: "*-tss_region_coverage.txt.gz", mode: 'copy'
 
 	input:
@@ -1256,8 +1035,8 @@ process getPerBaseCoverageTssProcess {
     # First get 2kb regions surrounding TSSs (not strand-specific here)
     # then calculate per-base coverage with bedtools
     # then write any non-zero entries to a file
-    ${commonValue.bedtools} slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${perBaseCoverageTss.flanking_distance}  \
-    | ${commonValue.bedtools} coverage -sorted -d -a stdin -b ${inTranspositionSites} \
+    bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance}  \
+    | bedtools coverage -sorted -d -a stdin -b ${inTranspositionSites} \
     | awk '{{ if (\$8 > 0) print \$0 }}' \
     | gzip > \${TEMP_OUTPUT_FILE}
 
@@ -1294,12 +1073,14 @@ callCellsOutChannelCalledCellsWhitelistCopy01
     .flatMap { makePeakMatrixChannelSetupCellWhitelist( it, sampleSortedNames ) }
     .set { makePeakMatrixInChannelCellWhitelist }
 
+sortChromosomeSizeOutChannelCopy05
+    .toList()
+    .flatMap { makePeakMatrixChannelSetupChromosomeSizes( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { makePeakMatrixChannelInChannelChromosomeSizes }
+
 process makePeakMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus peakMatrix.max_cores
-    memory "${peakMatrix.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6 pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-peak_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
@@ -1307,6 +1088,7 @@ process makePeakMatrixProcess {
 	set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makePeakMatrixInChannelTranspositionSites
 	set file( inMergedPeaks ), inMergedPeaksMap from makePeakMatrixInChannelMergedPeaks
 	set file( inCellWhitelist ), inCellWhitelistMap from makePeakMatrixInChannelCellWhitelist
+    set file( inChromosomeSizes ), inChromosomeSizesMap from makePeakMatrixChannelInChannelChromosomeSizes
 
 	output:
 	file( "*-peak_matrix.mtx.gz" ) into makePeakMatrixOutChannel
@@ -1318,7 +1100,7 @@ process makePeakMatrixProcess {
     source ${script_dir}/python_env/bin/activate
 
     python ${script_dir}/generate_sparse_matrix.py \
-    --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inMergedPeaks} -b ${inTranspositionSites} -wa -wb) \
+    --transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inMergedPeaks} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inMergedPeaks} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output ${inMergedPeaksMap['outPeakMatrix']}
@@ -1345,12 +1127,14 @@ callCellsOutChannelCalledCellsWhitelistCopy02
     .flatMap { makeWindowMatrixChannelSetupCellWhitelist( it, sampleSortedNames ) }
     .set { makeWindowMatrixInChannelCellWhitelist }
 
+sortChromosomeSizeOutChannelCopy06
+    .toList()
+    .flatMap { makeWindowMatrixChannelSetupChromosomeSizes( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { makeWindowMatrixChannelInChannelChromosomeSizes }
+
 process makeWindowMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus windowMatrix.max_cores
-    memory "${windowMatrix.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6:pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-window_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
@@ -1358,6 +1142,7 @@ process makeWindowMatrixProcess {
     set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makeWindowMatrixInChannelTranspositionSites
     set file( inWindowedIntervals ), inWindowedIntervalsMap from makeWindowMatrixInChannelWindowedGenomeIntervals
     set file( inCellWhitelist ), inCellWhitelistMap from makeWindowMatrixInChannelCellWhitelist
+    set file( inChromosomeSizes ), inChromosomeSizesMap from makeWindowMatrixChannelInChannelChromosomeSizes
 
 	output:
 	file( "*" ) into makeWindowMatrixOutChannel
@@ -1368,7 +1153,7 @@ process makeWindowMatrixProcess {
     source ${script_dir}/python_env/bin/activate
 
     python ${script_dir}/generate_sparse_matrix.py \
-    --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -a ${inWindowedIntervals} -b ${inTranspositionSites} -wa -wb) \
+    --transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inWindowedIntervals} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inWindowedIntervals} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output ${inWindowedIntervalsMap['outWindowMatrix']}
@@ -1395,7 +1180,7 @@ callCellsOutChannelCalledCellsWhitelistCopy03
     .flatMap { makePromoterMatrixChannelSetupCellWhitelist( it, sampleSortedNames ) }
     .set { makePromoterMatrixInChannelCellWhitelist }
 
-sortChromosomeSizeOutChannelCopy05
+sortChromosomeSizeOutChannelCopy07
     .toList()
     .flatMap { makePromoterMatrixChannelSetupChromosomeSizes( it, sampleSortedNames, sampleGenomeMap ) }
     .set { makePromoterMatrixChannelInChannelChromosomeSizes }
@@ -1403,9 +1188,6 @@ sortChromosomeSizeOutChannelCopy05
 process makePromoterMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    cpus promoterMatrix.max_cores
-    memory "${promoterMatrix.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0:zlib/1.2.6:pigz/latest'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-promoter_matrix.mtx.gz", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
@@ -1424,7 +1206,7 @@ process makePromoterMatrixProcess {
     source ${script_dir}/python_env/bin/activate
 
     python ${script_dir}/generate_sparse_matrix.py \
-    --transposition_sites_intersect <(${commonValue.bedtools} intersect -sorted -g ${inChromosomeSizes} -a ${inGeneRegions} -b ${inTranspositionSites} -wa -wb) \
+    --transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inGeneRegions} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inGeneRegions} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output ${inGeneRegionsMap['outPromoterMatrix']}
@@ -1500,8 +1282,6 @@ Channel
 process summarizeCellCallsProcess {
     cache 'lenient'
     errorStrategy onError
-    cpus summarizeCellCalls.max_cores
-    memory "${summarizeCellCalls.memory} GB"
     module 'openjdk/latest:modules:modules-init:modules-gs'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.pdf", mode: 'copy'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.stats.txt", mode: 'copy'
@@ -1548,8 +1328,8 @@ process summarizeCellCallsProcess {
 process getPerCellInsertSizesProcess {
     cache 'lenient'
     errorStrategy onError
-    cpus perCellInsertSizes.max_cores
-    memory "${perCellInsertSizes.memory} GB"
+//    cpus perCellInsertSizes.max_cores
+//    memory "${perCellInsertSizes.memory} GB"
     module 'openjdk/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
@@ -1575,7 +1355,7 @@ process getPerCellInsertSizesProcess {
 //        module load modules modules-init modules-gs
 //        module load zlib/1.2.6
 //        module load samtools/1.9
-//        source {PIPELINE_PATH}/load_python_env_reqs.sh
+//        source {pipeline_path}/load_python_env_reqs.sh
 //        source {SCRIPTS_DIR}/python_env/bin/activate
 //
 //        python {SCRIPTS_DIR}/get_insert_size_distribution_per_cell.py {fragments_file} {output_file} --barcodes {cell_whitelist}
@@ -1596,8 +1376,8 @@ process getBandingScoresProcess {
     cache 'lenient'
     errorStrategy onError
     penv 'serial'
-    cpus bandingScores.max_cores
-    memory "${bandingScores.memory} GB"
+//    cpus bandingScores.max_cores
+//    memory "${bandingScores.memory} GB"
     module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
@@ -1638,8 +1418,8 @@ process callMotifsProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus callMotifs.max_cores
-	memory "${callMotifs.memory} GB"
+//	cpus callMotifs.max_cores
+//	memory "${callMotifs.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
@@ -1676,7 +1456,7 @@ process callMotifsProcess {
 //        self.command = """
 //        module purge
 //        module load modules modules-init modules-gs
-//        source {PIPELINE_PATH}/load_python_env_reqs.sh
+//        source {pipeline_path}/load_python_env_reqs.sh
 //        source {SCRIPTS_DIR}/python_env/bin/activate
 //
 //        python {SCRIPTS_DIR}/call_peak_motifs.py {fasta} {peaks} {motifs} {output_file} --gc_bin {gc_bin} --pwm_threshold {pwm_threshold}
@@ -1698,8 +1478,8 @@ process makeMotifMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus motifMatrix.max_cores
-	memory "${motifMatrix.memory} GB"
+//	cpus motifMatrix.max_cores
+//	memory "${motifMatrix.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
@@ -1729,7 +1509,7 @@ process makeMotifMatrixProcess {
 //        module purge
 //        module load modules modules-init modules-gs
 //        module load zlib/1.2.6 pigz/latest
-//        source {PIPELINE_PATH}/load_python_env_reqs.sh
+//        source {pipeline_path}/load_python_env_reqs.sh
 //        source {SCRIPTS_DIR}/python_env/bin/activate
 //
 //
@@ -1756,8 +1536,8 @@ process makeReducedDimensionMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus reducedDimensionMatrix.max_cores
-	memory "${reducedDimensionMatrix.memory} GB"
+//	cpus reducedDimensionMatrix.max_cores
+//	memory "${reducedDimensionMatrix.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
@@ -1827,8 +1607,8 @@ process makeCisTopicModelsProcess {
 	cache 'lenient'
     errorStrategy onError
 	penv 'serial'
-	cpus cisTopicModels.max_cores
-	memory "${cisTopicModels.memory} GB"
+//	cpus cisTopicModels.max_cores
+//	memory "${cisTopicModels.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
     publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
@@ -2364,8 +2144,8 @@ def getSortedSampleNames( sampleLaneMap ) {
 def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 	def demuxDir = params.demux_dir
 	def seed = ''
-	if( runAlign.seed != null ) {
-	   seed = "--seed ${runAlign.seed}"
+	if( params.bowtie_seed != null ) {
+	   seed = "--seed ${params.bowtie_seed}"
 	}
 	def alignMaps = []
 	def samples = sampleLaneMap.keySet()
@@ -2716,7 +2496,7 @@ def makePeakFileChannelSetup( inPaths, sampleSortedNames ) {
 /*
 ** Set up channel for making genome intervals for peak counting.
 */
-def makeWindowedGenomeIntervalsChannelSetup( inPaths, sampleSortedNames, sampleGenomeMap, windowSize ) {
+def makeWindowedGenomeIntervalsChannelSetup( inPaths, sampleSortedNames, sampleGenomeMap ) {
     /*
     ** Check for expected bed files.
     */
@@ -2737,20 +2517,22 @@ def makeWindowedGenomeIntervalsChannelSetup( inPaths, sampleSortedNames, sampleG
         def aGenomeJsonMap = sampleGenomeMap[aSample]
         def outGenomicWindows = aSample + '-genomic_windows.bed'
         def inGenomicIntervals = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
-        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample, 'outGenomicWindows': outGenomicWindows, 'windowSize': windowSize ] )
+        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample, 'outGenomicWindows': outGenomicWindows ] )
         outTuples.add( tuple )
     }
 
+/*
+** Vestigial bge
     def outMaps = []
     sampleSortedNames.each { aSample ->
         def genomicWindows = aSample + '-genomic_windows.bed'
         def aMap = [:]
         aMap['sample'] = aSample
         aMap['genomicWindows'] = genomicWindows
-        aMap['windowSize'] = windowSize
         outMaps.add( aMap )
     }
-    
+ */
+   
     /*
     ** diagnostics
 
@@ -2759,7 +2541,6 @@ def makeWindowedGenomeIntervalsChannelSetup( inPaths, sampleSortedNames, sampleG
         println "sample: ${aTuple[1]['sample']}"
         println "genomeSizes: ${aTuple[1]['genomeSizes']}"
         println "genomicWindows: ${aTuple[1]['genomicWindows']}"
-        println "windowSize: ${aTuple[1]['windowSize']}"
     }
     */
   
@@ -2776,7 +2557,7 @@ def makeWindowedGenomeIntervalsChannelSetup( inPaths, sampleSortedNames, sampleG
 /*
 ** Set up a channel for making gene-related windows for peak counting.
 */
-def makePromoterSumIntervalsChannelSetup( inPaths, sampleSortedNames, sampleGenomeMap, proximalDownstream, proximalUpstream, peakToTssDistanceThreshold ) {
+def makePromoterSumIntervalsChannelSetup( inPaths, sampleSortedNames, sampleGenomeMap ) {
     /*
     ** Check for expected bed files.
     */
@@ -2816,9 +2597,6 @@ def makePromoterSumIntervalsChannelSetup( inPaths, sampleSortedNames, sampleGeno
                                             'hasGeneScoreBed': hasGeneScoreBed,
                                             'tssFile': tssFile,
                                             'inBedFile': inBedFile,
-                                            'proximalDownstream': proximalDownstream,
-                                            'proximalUpstream': proximalUpstream,
-                                            'peakToTssDistanceThreshold': peakToTssDistanceThreshold,
                                             'outBed': outBed ] )
         outTuples.add( tuple )
     }
@@ -3317,8 +3095,8 @@ def callCellsChannelSetup( inPaths, sampleSortedNames ) {
         def outCellWhitelist = aSample + '-called_cells_whitelist.txt'
         def outCallCellsStats = aSample + '-called_cells_stats.json'
         def readsThreshold = ""
-        if( callCells.reads_threshold != null ) {
-            readsThreshold = "--reads_threshold ${callCells.reads_threshold}"
+        if( params.reads_threshold != null ) {
+            readsThreshold = "--reads_threshold ${params.reads_threshold}"
         }
         def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample,
                                                 'readsThreshold': readsThreshold,
@@ -3644,6 +3422,47 @@ def makePeakMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
 
 
 /*
+** Set up a channel for filtering sites in making peak matrices.
+** This channel has the chromosome sizes file.
+*/
+def makePeakMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.chromosome_sizes.sorted.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inFileName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.chromosome_sizes.sorted.txt'
+        def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    /*
+    ** diagnostics
+    println "makePeakMatrixChannelSetupChromosomeSizes chromosome sizes files"
+    outTuples.each { aTuple ->
+        def aPath = aTuple[0]
+        def aFile = aPath.getFileName().toString()
+        println "aSample: ${aTuple[1]['sample']}"
+        println "aFile: ${aFile}"
+        println "aPath: ${aPath}"
+    */
+
+    return( outTuples )
+}
+
+
+/*
 ** ================================================================================
 ** Make window matrix channel setup functions.
 ** ================================================================================
@@ -3778,6 +3597,47 @@ def makeWindowMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
         println "aPath: ${aPath}"
         
     }
+    */
+
+    return( outTuples )
+}
+
+
+/*
+** Set up a channel for filtering sites in making window matrices.
+** This channel has the chromosome sizes file.
+*/
+def makeWindowMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.chromosome_sizes.sorted.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inFileName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.chromosome_sizes.sorted.txt'
+        def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    /*
+    ** diagnostics
+    println "makeWindowMatrixChannelSetupChromosomeSizes chromosome sizes files"
+    outTuples.each { aTuple ->
+        def aPath = aTuple[0]
+        def aFile = aPath.getFileName().toString()
+        println "aSample: ${aTuple[1]['sample']}"
+        println "aFile: ${aFile}"
+        println "aPath: ${aPath}"
     */
 
     return( outTuples )
@@ -3957,7 +3817,7 @@ def makePromoterMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, s
 
     /*
     ** diagnostics
-    println "makeMergedPeakRegionCountsChannelSetupChromosomeSizes chromosome sizes files"
+    println "makePromoterMatrixChannelSetupChromosomeSizes chromosome sizes files"
     outTuples.each { aTuple ->
         def aPath = aTuple[0]
         def aFile = aPath.getFileName().toString()

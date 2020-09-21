@@ -140,7 +140,7 @@ if __name__ == '__main__':
 
         if fragment_id not in observed_fragments:
             # first time fragment seen, track fragment/specific readname and write out
-            observed_fragments[fragment_id] = 1
+            observed_fragments[fragment_id] = 0
             
             # Track insert sizes if requested
             if args.insert_sizes:
@@ -155,11 +155,11 @@ if __name__ == '__main__':
             if args.output_bam and read.qname in read_names_written:
                 # Mate of this read was written, so write it out specifically to maintain proper pairing
                 readsout.write(read)
-            else:
-                # Track the number of duplicate fragments, but don't double count
-                # since this tracks fragments, not reads
-                if read.is_read1:
-                    observed_fragments[fragment_id] += 1
+
+        # Track the number of duplicate fragments, but don't double count
+        # since this tracks fragments, not reads
+        if read.is_read1:
+            observed_fragments[fragment_id] += 1
                     
 
     # Write out any more fragments as needed

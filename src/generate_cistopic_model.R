@@ -102,6 +102,6 @@ cisTopicObject = cisTopic::runtSNE(cisTopicObject, perplexity=30)
 saveRDS(cisTopicObject, args$model)
 
 if (!args$no_great) {
-	cisTopicObject <- GREAT(cisTopicObject, genome='hg19', fold_enrichment=2, geneHits=1, sign=0.05, request_interval=10)
+	cisTopicObject <- GREAT(cisTopicObject, genome='hg38', fold_enrichment=2, geneHits=1, sign=0.05, request_interval=10)
 	saveRDS(cisTopicObject, args$model)
 }
