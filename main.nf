@@ -291,7 +291,14 @@ if( params.help ) {
 /*
 ** Check for required parameters.
 */
-assert ( params.demux_dir && params.analyze_dir && params.genomes_json) : "missing config file: use -c CONFIG_FILE.config that includes demux_dir, analyze_dir, and genomes_json"
+assert ( params.output_dir && params.genomes_json) : "missing config file: use -c CONFIG_FILE.config that includes demux_dir, analyze_dir, and genomes_json"
+
+/*
+** Define demux_dir and analyze_dir.
+*/
+output_dir = params.output_dir.replaceAll("/\\z", "")
+demux_dir = output_dir + '/demux_out'
+analyze_dir = output_dir + '/analyze_dir'
 
 /*
 ** Report run parameter values.
@@ -318,7 +325,7 @@ checkDirectories( params )
 /*
 ** Read args.json file in demux_dir.
 */
-def argsJson = readArgsJson( params.demux_dir + "/args.json" )
+def argsJson = readArgsJson( demux_dir + "/args.json" )
 
 /*
 ** Get map of sample names (samples in JSON file) where the keys are
@@ -373,7 +380,7 @@ checkFastqs( params, sampleLaneJsonMap )
 ** Notes:
 **   o  perhaps write sample-specific JSON files
 */
-def jsonFilename = params.analyze_dir + '/args.json'
+def jsonFilename = analyze_dir + '/args.json'
 writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow )
 
 
@@ -393,7 +400,8 @@ Channel
 process sortTssBedProcess {
     cache 'lenient'
     errorStrategy onError
-	publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.bed.gz", mode: 'copy'
+	publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.bed.gz", mode: 'copy'
+//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*.bed.gz", mode: 'copy'
 	
 	input:
 	val tssBedMap from sortTssBedInChannel
@@ -409,7 +417,8 @@ process sortTssBedProcess {
 
 sortTssBedOutChannel
     .into { sortTssBedOutChannelCopy01;
-            sortTssBedOutChannelCopy02 }
+            sortTssBedOutChannelCopy02;
+            sortTssBedOutChannelCopy03 }
 
 /*
 ** Sort chromosome size files of required genomes.
@@ -421,7 +430,7 @@ Channel
 process sortChromosomeSizeProcess {
     cache 'lenient'
     errorStrategy errorStrategy { sleep(Math.pow(2, task.attempt) * 200); return 'retry' }
-	publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.txt", mode: 'copy'
+	publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.txt", mode: 'copy'
 	
 	input:
 	val chromosomeSizeMap from sortChromosomeSizeInChannel
@@ -442,7 +451,9 @@ sortChromosomeSizeOutChannel
             sortChromosomeSizeOutChannelCopy04;
             sortChromosomeSizeOutChannelCopy05;
             sortChromosomeSizeOutChannelCopy06;
-            sortChromosomeSizeOutChannelCopy07 }
+            sortChromosomeSizeOutChannelCopy07;
+            sortChromosomeSizeOutChannelCopy08;
+            sortChromosomeSizeOutChannelCopy09 }
 
 
 /*
@@ -466,7 +477,7 @@ process runAlignProcess {
     memory "${bowtie_memory}G"
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
  
 	input:
 	val alignMap from runAlignInChannel
@@ -500,19 +511,25 @@ runAlignOutChannel
 process mergeBamsProcess {
     cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bam", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bai", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bai", mode: 'copy'
 
 	input:
-	set file( inBams ), outBam from mergeBamsInChannel
+	set file( inBams ), inMergeBamMap from mergeBamsInChannel
 
 	output:
 	file( "*" ) into mergeBamsOutChannelBam
 	
 	script:
 	"""
-	sambamba merge --nthreads 8 ${outBam} ${inBams}
-	samtools index ${outBam}
+	sambamba merge --nthreads 8 ${inMergeBamMap['outBam']} ${inBams}
+	samtools index ${inMergeBamMap['outBam']}
+
+    mkdir -p ${analyze_dir}/${inMergeBamMap['sample']}/genome_browser
+    pushd ${analyze_dir}/${inMergeBamMap['sample']}/genome_browser
+    ln -s ../merge_bams/${inMergeBamMap['outBam']} .
+    ln -s ../merge_bams/${inMergeBamMap['outBam']}.bai .
+    popd
 	"""
 }
 
@@ -526,25 +543,40 @@ process mergeBamsProcess {
 mergeBamsOutChannelBam
     .flatten()
 	.toList()
-	.flatMap { getUniqueFragmentsChannelSetup( it, sampleSortedNames ) }
-	.set { getUniqueFragmentsInChannel }
+	.flatMap { getUniqueFragmentsChannelSetupBam( it, sampleSortedNames ) }
+	.set { getUniqueFragmentsInChannelBam }
 
+sortChromosomeSizeOutChannelCopy08
+    .toList()
+    .flatMap { getUniqueFragmentsChannelSetupChromosomeSizes( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { getUniqueFragmentsInChannelChromosomeSizes }
+
+/*
+** Notes: 
+**   o  bedGraphToBigWig fails because the chromosome sizes file does not have all sequences used in the alignment, for example, Mt and contigs.
+*/
 process getUniqueFragmentsProcess {
     cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-transposition_sites.bed.gz*", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-fragments.txt.gz*", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-insert_sizes.txt", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-duplicate_report.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-transposition_sites.bed.gz*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-fragments.txt.gz*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-insert_sizes.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-duplicate_report.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) },       pattern: "*-transposition_sites.bed.gz*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) },       pattern: "*-read_alignments.bedgraph", mode: 'copy'
+//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) },       pattern: "*-read_alignments.bw", mode: 'copy'
     
 	input:
-	set file( inBam ), file(inBai), uniqueFragmentsMap from getUniqueFragmentsInChannel
-		
+	set file( inBam ), file(inBai), uniqueFragmentsMap from getUniqueFragmentsInChannelBam
+    set file( inGenomeSizes ), inGenomeSizesMap from getUniqueFragmentsInChannelChromosomeSizes
+
 	output:
 	file( "*-transposition_sites.bed.gz*" ) into getUniqueFragmentsOutChannelTranspositionSites  // get both -transposition_sites.bed.gz and -transposition_sites.bed.gz.tbi files
 	file( "*-fragments.txt.gz*" ) into getUniqueFragmentOutChannelFragments  // get both -fragments.txt.gz and -fragments.txt.gz.tbi files
 	file( "*-insert_sizes.txt" ) into getUniqueFragmentsOutChannelInsertSizeDistribution
 	file( "*-duplicate_report.txt" ) into getUniqueFragmentsOutChannelDuplicateReport
+    file( "*-read_alignments.bedgraph" ) into getUniqueFragmentsOutChannelBedGraph
+//    file( "*-read_alignments.bw" ) into getUniqueFragmentsOutChannelBigWig
 		
 	script:
 	"""
@@ -566,6 +598,10 @@ process getUniqueFragmentsProcess {
 
 	bgzip -f \$transposition_sites_uncompressed
 	tabix -p bed ${uniqueFragmentsMap['transposition_sites_file']}
+
+    # Make bedGraph file for genome browser.
+    bedtools genomecov -ibam ${inBam} -bga | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > ${inGenomeSizesMap['outBedGraphFile']}
+    # bedGraphToBigWig ${inGenomeSizesMap['outBedGraphFile']} $inGenomeSizes ${inGenomeSizesMap['outBigWigFile']}
 	"""
 }
 
@@ -580,7 +616,8 @@ getUniqueFragmentsOutChannelTranspositionSites
 	        getUniqueFragmentsOutChannelTranspositionSitesCopy04;
             getUniqueFragmentsOutChannelTranspositionSitesCopy05;
             getUniqueFragmentsOutChannelTranspositionSitesCopy06;
-            getUniqueFragmentsOutChannelTranspositionSitesCopy07 }
+            getUniqueFragmentsOutChannelTranspositionSitesCopy07;
+            getUniqueFragmentsOutChannelTranspositionSitesCopy08 }
 
 	
 /*
@@ -601,9 +638,9 @@ getUniqueFragmentsOutChannelTranspositionSitesCopy01
 process callPeaksProcess {
     cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.narrowPeak.gz", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.xls", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-summits.bed", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.narrowPeak.gz", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-peaks.xls", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-summits.bed", mode: 'copy'
 
 	input:
 	set file( inBed ), file(inTbi), callPeaksMap from callPeaksInChannel
@@ -664,7 +701,8 @@ callPeaksOutChannelNarrowPeakCopy01
 process mergePeaksProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
+//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
 
 	input:
 	set file( inBed ), mergePeaksMap from mergePeaksInChannel
@@ -686,7 +724,8 @@ mergePeaksOutChannel
     .into { mergePeaksOutChannelCopy01;
             mergePeaksOutChannelCopy02;
             mergePeaksOutChannelCopy03;
-            mergePeaksOutChannelCopy04 }
+            mergePeaksOutChannelCopy04;
+            mergePeaksOutChannelCopy05 }
 
     
 /*
@@ -706,7 +745,7 @@ sortChromosomeSizeOutChannelCopy01
 process makeWindowedGenomeIntervalsProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*genomic_windows.bed", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*genomic_windows.bed", mode: 'copy'
 
 	input:
     set file( inGenomeSizes ), inGenomeSizesMap from makeWindowedGenomeIntervalsInChannel
@@ -738,8 +777,8 @@ process makePromoterSumIntervalsProcess {
 	cache 'lenient'
     errorStrategy onError
 	module 'openjdk/latest:modules:modules-init:modules-gs:bedtools/2.26.0'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions.bed.gz", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions_note.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions.bed.gz", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-gene_regions_note.txt", mode: 'copy'
 
 	input:
     set file( inPath ), inMap from makePromoterSumIntervalsInChannel
@@ -805,7 +844,7 @@ sortChromosomeSizeOutChannelCopy02
 process makeMergedPeakRegionCountsProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-peak_counts.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-peak_counts.txt", mode: 'copy'
 
 	input:
 	set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makeMergedPeakRegionCountsInChannelTranspositionSites
@@ -858,7 +897,7 @@ sortChromosomeSizeOutChannelCopy03
 process makeTssRegionCountsProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-tss_counts.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-tss_counts.txt", mode: 'copy'
 
     input:
     set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makeTssRegionCountsInChannelTranspositionSites
@@ -917,7 +956,7 @@ makeTssRegionCountsOutChannel
 process makeCountReportsProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-count_report.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-count_report.txt", mode: 'copy'
 
 	input:
     set file( inDuplicateReport ), inDuplicateReportMap from makeCountReportsInChannelDuplicateReport
@@ -956,9 +995,9 @@ makeCountReportsOutChannelCopy01
 process callCellsProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells.txt", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_whitelist.txt", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_stats.json", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_whitelist.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_cells" ) }, pattern: "*-called_cells_stats.json", mode: 'copy'
 
 	input:
 	set file( inCountReport ), inCountReportMap from callCellsInChannel
@@ -1018,7 +1057,7 @@ sortChromosomeSizeOutChannelCopy04
 process getPerBaseCoverageTssProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "per_base_tss_region_coverage" ) }, pattern: "*-tss_region_coverage.txt.gz", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "per_base_tss_region_coverage" ) }, pattern: "*-tss_region_coverage.txt.gz", mode: 'copy'
 
 	input:
     set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from getPerBaseCoverageTssInChannelTranspositionSites
@@ -1081,8 +1120,8 @@ sortChromosomeSizeOutChannelCopy05
 process makePeakMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-peak_matrix.mtx.gz", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-peak_matrix.mtx.gz", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
 	input:
 	set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makePeakMatrixInChannelTranspositionSites
@@ -1135,8 +1174,8 @@ sortChromosomeSizeOutChannelCopy06
 process makeWindowMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-window_matrix.mtx.gz", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-window_matrix.mtx.gz", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
 	input:
     set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makeWindowMatrixInChannelTranspositionSites
@@ -1188,8 +1227,8 @@ sortChromosomeSizeOutChannelCopy07
 process makePromoterMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-promoter_matrix.mtx.gz", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-promoter_matrix.mtx.gz", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
 
 	input:
     set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makePromoterMatrixInChannelTranspositionSites
@@ -1283,8 +1322,8 @@ process summarizeCellCallsProcess {
     cache 'lenient'
     errorStrategy onError
     module 'openjdk/latest:modules:modules-init:modules-gs'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.pdf", mode: 'copy'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.stats.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.pdf", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.stats.txt", mode: 'copy'
 
     input:
     set file( inCountReports ), inCountReportsMap from summarizeCellCallsInChannelCountReports
@@ -1323,6 +1362,74 @@ process summarizeCellCallsProcess {
 
 
 /*
+** ================================================================================
+** Make genome browser files.
+** ================================================================================
+*/
+sortTssBedOutChannelCopy03
+    .toList()
+    .flatMap{ makeGenomeBrowserFilesChannelSetupTss( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { makeGenomeBrowserFilesInChannelTssRegions }
+
+mergePeaksOutChannelCopy05
+    .toList()
+    .flatMap{ makeGenomeBrowserFilesChannelSetupMergedPeaks( it, sampleSortedNames ) }
+    .set { makeGenomeBrowserFilesInChannelMergedPeaks }
+
+getUniqueFragmentsOutChannelTranspositionSitesCopy08
+    .flatten()
+    .toList()
+    .flatMap{ makeGenomeBrowserFilesChannelSetupTranspositionSites( it, sampleSortedNames ) }
+    .set { makeGenomeBrowserFilesInChannelTranspositionSites }
+
+sortChromosomeSizeOutChannelCopy09
+    .toList()
+    .flatMap { makeGenomeBrowserFilesChannelSetupChromosomeSizes( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { makeGenomeBrowserFilesInChannelChromosomeSizes }
+
+process makeGenomeBrowserFilesProcess {
+    cache 'lenient'
+    errorStrategy onError
+    module 'openjdk/latest:modules:modules-init:modules-gs'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*.tss_file.sorted.gb.*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-merged_peaks.gb.*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-transposition_sites.gb.*", mode: 'copy'
+
+    input:
+    set file( inTssRegions ), inTssRegionsMap from makeGenomeBrowserFilesInChannelTssRegions
+    set file( inMergedPeaks ), inMergedPeaksMap from makeGenomeBrowserFilesInChannelMergedPeaks
+    set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makeGenomeBrowserFilesInChannelTranspositionSites
+    set file( inChromosomeSizes ), inChromosomeSizesMap from makeGenomeBrowserFilesInChannelChromosomeSizes
+
+    output:
+    file( "*.tss_file.sorted.gb.bed*" ) into makeGenomeBrowserFilesProcessOutChannelTssRegionsBed
+    file( "*-merged_peaks.gb.bed" ) into makeGenomeBrowserFilesProcessOutChannelMergedPeaksBed
+    file( "*-transposition_sites.gb.bed*" ) into makeGenomeBrowserFilesProcessOutChannelTranspositionSitesBed
+    file( "*.tss_file.sorted.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelTssRegionsBB
+    file( "*-merged_peaks.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelMergedPeaksBB
+    file( "*-transposition_sites.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelTranspositionSitesBB
+
+    script:
+    """
+    awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' $inChromosomeSizes > chromosome_size.txt.edited
+
+    zcat $inTssRegions | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1'> ${inTssRegionsMap['outBedFile']}
+    bedToBigBed -tab ${inTssRegionsMap['outBedFile']} chromosome_size.txt.edited ${inTssRegionsMap['outBigBedFile']}
+    bgzip ${inTssRegionsMap['outBedFile']}
+    tabix -p bed ${inTssRegionsMap['outBedFile']}.gz
+
+    cat $inMergedPeaks | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > ${inMergedPeaksMap['outBedFile']}
+    bedToBigBed -tab ${inMergedPeaksMap['outBedFile']} chromosome_size.txt.edited ${inMergedPeaksMap['outBigBedFile']}
+    
+    zcat $inTranspositionSites | $script_dir/trim_bed_stream.py $inChromosomeSizes | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > ${inTranspositionSitesMap['outBedFile']}
+    bedToBigBed -tab ${inTranspositionSitesMap['outBedFile']} chromosome_size.txt.edited ${inTranspositionSitesMap['outBigBedFile']}
+    bgzip ${inTranspositionSitesMap['outBedFile']}
+    tabix -p bed ${inTranspositionSitesMap['outBedFile']}.gz
+    """
+}
+
+
+/*
 ** Get per cell insert sizes (optional).
 **
 process getPerCellInsertSizesProcess {
@@ -1331,7 +1438,7 @@ process getPerCellInsertSizesProcess {
 //    cpus perCellInsertSizes.max_cores
 //    memory "${perCellInsertSizes.memory} GB"
     module 'openjdk/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
     input:
     xxx
@@ -1379,7 +1486,7 @@ process getBandingScoresProcess {
 //    cpus bandingScores.max_cores
 //    memory "${bandingScores.memory} GB"
     module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
     input:
     xxx
@@ -1421,7 +1528,7 @@ process callMotifsProcess {
 //	cpus callMotifs.max_cores
 //	memory "${callMotifs.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
 	xxx
@@ -1481,7 +1588,7 @@ process makeMotifMatrixProcess {
 //	cpus motifMatrix.max_cores
 //	memory "${motifMatrix.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
 	xxx
@@ -1539,7 +1646,7 @@ process makeReducedDimensionMatrixProcess {
 //	cpus reducedDimensionMatrix.max_cores
 //	memory "${reducedDimensionMatrix.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
 	xxx
@@ -1610,7 +1717,7 @@ process makeCisTopicModelsProcess {
 //	cpus cisTopicModels.max_cores
 //	memory "${cisTopicModels.memory} GB"
 	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${params.analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
 
 	input:
 	xxx
@@ -1740,18 +1847,17 @@ def writeHelp() {
     log.info '    --help                              Show this message and exit.'
     log.info ''
     log.info 'Required parameters (specify in your config file):'
-    log.info '    params.demux_dir = DEMUX_DIRECTORY (str)     Path to the demux directory with the demultiplexed fastq files.'
-    log.info '    params.analyze_dir = OUTPUT_DIRECTORY (str)    Path to the analysis output directory.'
+    log.info '    params.output_dir = OUTPUT_DIRECTORY (str)     Path to the demux directory with the demultiplexed fastq files.'
     log.info '    params.genomes_json = GENOMES_JSON         A json file of genome information for analyses.'
     log.info ''
     log.info 'Optional parameters (specify in your config file):'
     log.info '    params.samples = SAMPLES (str)             A list of samples to include in the analysis. Restrict to a subset of samples in demux output.'
     log.info '    process.bowtie_seed = SEED (int)           Bowtie random number generator seed.'
-    log.info '    params.reads_threshold = THRESHOLD (int)   Threshold for how many unique reads to consider a cell. Default is to dynamically pick with mclust.'
-	log.info '    params.no_secondary (flag)                 This flag prevents dimensionality reduction and clustering.'
-	log.info '    params.calculate_banding_scores (flag)     Add flag to calculate banding scores (take a while to run which is why opt-in here).'
-	log.info '    params.topic_models (flag)                 Add flag to generate topic models using cisTopic.'
-	log.info '    params.topics (str)                        If generating topic models, this allows the user to specify a list of topic counts to try.'
+//    log.info '    params.reads_threshold = THRESHOLD (int)   Threshold for how many unique reads to consider a cell. Default is to dynamically pick with mclust.'
+//	log.info '    params.no_secondary (flag)                 This flag prevents dimensionality reduction and clustering.'
+//	log.info '    params.calculate_banding_scores (flag)     Add flag to calculate banding scores (take a while to run which is why opt-in here).'
+//	log.info '    params.topic_models (flag)                 Add flag to generate topic models using cisTopic.'
+//	log.info '    params.topics (str)                        If generating topic models, this allows the user to specify a list of topic counts to try.'
     log.info '    params.max_cores = 16                      The maximum number of cores to use - fewer will be used if appropriate.'
     log.info '    process.max_forks = 20                      The maximum number of processes to run at the same time on the cluster.'
     log.info '    process.queue = "trapnell-short.q"         The queue on the cluster where the jobs should be submitted.'
@@ -1767,8 +1873,8 @@ def reportRunParams( params ) {
 	String s = ""
 	s += String.format( "Run parameters\n" )
 	s += String.format( "--------------\n" )
-	s += String.format( "Demultiplexed fastq directory:        %s\n", params.demux_dir )
-	s += String.format( "Analysis output directory:            %s\n", params.analyze_dir )
+	s += String.format( "Demultiplexed fastq directory:        %s\n", demux_dir )
+	s += String.format( "Analysis output directory:            %s\n", analyze_dir )
     s += String.format( "Launch directory:                     %s\n", workflow.launchDir )
     s += String.format( "Work directory:                       %s\n", workflow.workDir )
 	if( params.samples != null ) {
@@ -1814,7 +1920,7 @@ def checkDirectories( params ) {
 	/*
 	** Check that demux_dir exists.
 	*/
-	def dirName = params.demux_dir
+	def dirName = demux_dir
 	def dirHandle = new File( dirName )
 	assert dirHandle.exists() : "unable to find demultiplexed fastq directory $dirName"
 	assert dirHandle.canRead() : "unable to read demultiplexed fastq directory $dirName"
@@ -1822,7 +1928,7 @@ def checkDirectories( params ) {
 	/*
 	** Check that either the analyze_dir exists or we can create it.
 	*/
-	dirName = params.analyze_dir
+	dirName = analyze_dir
 	dirHandle = new File( dirName )
 	if( !dirHandle.exists() ) {
 		assert dirHandle.mkdirs() : "unable to create analyze output directory $dirName"
@@ -1903,7 +2009,7 @@ def getSamplesJson( argsJson ) {
 def checkFastqs( params, sampleLaneMap ) {
     def fileName
     def fileHandle
-	def dirName = params.demux_dir
+	def dirName = demux_dir
 	def samples = sampleLaneMap.keySet()
 	samples.each { aSample ->
 		def lanes = sampleLaneMap[aSample]
@@ -1927,8 +2033,8 @@ def checkFastqs( params, sampleLaneMap ) {
 def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow ) {
     analyzeDict = [:]
     analyzeDict['run_date'] = timeNow.format( 'yyyy-MM-dd_HH-mm-ss' )
-    analyzeDict['demux_dir'] = params.demux_dir
-    analyzeDict['analyze_dir'] = params.analyze_dir
+    analyzeDict['demux_dir'] = demux_dir
+    analyzeDict['analyze_dir'] = analyze_dir
     analyzeDict['genomes_json'] = params.genomes_json
     analyzeDict['samples'] = params.samples
     analyzeDict['bowtie_seed'] = params.bowtie_seed
@@ -2142,7 +2248,7 @@ def getSortedSampleNames( sampleLaneMap ) {
 **        bamfile         path of output bam file
 */
 def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
-	def demuxDir = params.demux_dir
+	def demuxDir = demux_dir
 	def seed = ''
 	if( params.bowtie_seed != null ) {
 	   seed = "--seed ${params.bowtie_seed}"
@@ -2231,7 +2337,7 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 	def outTuples = []
 	samples.each { aSample ->
 		def outBam = aSample + '-merged.bam'
-		def tuple = new Tuple( sampleLaneBamMap[aSample], outBam )
+		def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample, 'outBam': outBam ] )
 		outTuples.add( tuple )
 	}
 	
@@ -2262,7 +2368,7 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 ** output: list of tuples in which each tuple consists of [0] bam filename,
 **         [1] bai filename, and [2] map of output filenames
 */
-def getUniqueFragmentsChannelSetup( inPaths, sampleSortedNames ) {
+def getUniqueFragmentsChannelSetupBam( inPaths, sampleSortedNames ) {
 	/*
 	** Check for expected BAM files.
 	*/
@@ -2301,7 +2407,7 @@ def getUniqueFragmentsChannelSetup( inPaths, sampleSortedNames ) {
         } else if( aFile =~ /merged[.]bam[.]bai$/ ) {
             pathMap[aSample]['bai'] = aPath
         } else {
-            println "Warning: getUniqueFragmentsChannelSetup: unexpected file \'${fileName}\'"
+            println "Warning: getUniqueFragmentsChannelSetupBam: unexpected file \'${fileName}\'"
         }
     }
     
@@ -2324,7 +2430,7 @@ def getUniqueFragmentsChannelSetup( inPaths, sampleSortedNames ) {
 	/*
 	** diagnostics
 
-	println "getUniqueFragmentsChannelSetup"
+	println "getUniqueFragmentsChannelSetupBam"
 	outTuples.each { tuple ->
 		println "  inBam: ${tuple[0]}"
         println "  inBai: ${tuple[1]}"
@@ -2336,6 +2442,49 @@ def getUniqueFragmentsChannelSetup( inPaths, sampleSortedNames ) {
     */
 	
 	return( outTuples )
+}
+
+
+/*
+** Set up channel for making read alignment bigwig file.
+*/
+def getUniqueFragmentsChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected bed files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def fileName = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def inGenomicIntervals = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
+        def outBedGraphFile = aSample + '-read_alignments.bedgraph'
+        def outBigWigFile = aSample + '-read_alignments.bw'
+        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample, 'outBedGraphFile': outBedGraphFile, 'outBigWigFile': outBigWigFile ] )
+        outTuples.add( tuple )
+    }
+
+    /*
+    ** diagnostics
+    println "makeWindowedGenomeIntervalsChannelSetup"
+    outTuples.each { aTuple ->
+        println "sample: ${aTuple[1]['sample']}"
+        println "genomeSizes: ${aTuple[1]['genomeSizes']}"
+        println "outBigWigFile file: ${aTuple[1]['outBigWigFile']}"
+    }
+    */
+
+    return( outTuples )
 }
 
 
@@ -4166,6 +4315,198 @@ def summarizeCellCallsSetupTestBarnyard( sampleSortedNames, sampleGenomeMap ) {
     */
 
     return( outMaps )
+}
+
+
+/*
+** Set up a channel for getting TSS regions genome browser file.
+** This channel has the Tss regions in the genome.
+** Notes:
+**   o  inPath filenames have the form <sample_name>-<genome_name>.tss_file.sorted.bed.gz
+**   o  return a list of files sorted by sample name.
+*/
+def makeGenomeBrowserFilesChannelSetupTss( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected bed.gz files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.bed.gz'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inBedName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.bed.gz'
+        def outBedFile = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.gb.bed'
+        def outBigBedFile = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.gb.bb'
+        def tuple = new Tuple( fileMap[inBedName], [ 'sample': aSample, 'outBedFile': outBedFile, 'outBigBedFile': outBigBedFile ] )
+        outTuples.add( tuple )
+    }
+
+    /*
+    ** diagnostics
+    println "makeGenomeBrowserFilesChannelSetupTss TSS region files"
+    outTuples.each { aTuple ->
+        def aPath = aTuple[0]
+        def aFile = aPath.getFileName().toString()
+        println "aSample: ${aTuple[1]['sample']}"
+        println "aFile: ${aFile}"
+        println "aPath: ${aPath}"
+
+    }
+    */
+
+    return( outTuples )
+}
+
+
+/*
+** Set up a channel for getting merged peak browser file.
+*/
+def makeGenomeBrowserFilesChannelSetupMergedPeaks( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected bed files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-merged_peaks.bed'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inMergedPeaks = aSample + '-merged_peaks.bed'
+        def outBedFile = aSample + '-merged_peaks.gb.bed'
+        def outBigBedFile = aSample + '-merged_peaks.gb.bb'
+        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample, 'outBedFile': outBedFile, 'outBigBedFile': outBigBedFile ] )
+        outTuples.add( tuple )
+    }
+
+    /*
+    ** diagnostics
+    println 'makeGenomeBrowserFilesChannelSetupMergedPeaks'
+    outTuples.each { aTuple ->
+        def aPath = aTuple[0]
+        def aFile = aPath.getFileName().toString()
+        println "aSample: ${aTuple[1]['sample']}"
+        println "aFile: ${aFile}"
+        println "aPath: ${aPath}"
+    }
+    */
+
+    return( outTuples )
+}
+
+
+/*
+** Set up a channel for getting transposition site browser file.
+*/
+def makeGenomeBrowserFilesChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected bed.gz files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz'
+        filesExpected.add( fileName )
+    }
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-transposition_sites.bed.gz.tbi'
+        filesExpected.add( fileName )
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    }
+
+    def pathMap = [:]
+    sampleSortedNames.each { aSample ->
+        pathMap[aSample] = [:]
+    }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /transposition_sites[.]bed[.]gz$/ ) {
+            pathMap[aSample]['bed'] = aPath
+        } else if( aFile =~ /transposition_sites[.]bed[.]gz[.]tbi$/ ) {
+            pathMap[aSample]['tbi'] = aPath
+        } else {
+            println "Warning: makeGenomeBrowserFilesChannelSetupTranspositionSites: unexpected file \'${fileName}\'"
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def outBedFile = aSample + '-transposition_sites.gb.bed'
+        def outBigBedFile = aSample + '-transposition_sites.gb.bb'
+        def tuple = new Tuple( pathMap[aSample]['bed'], pathMap[aSample]['tbi'], [ 'sample': aSample, 'outBedFile': outBedFile, 'outBigBedFile': outBigBedFile ] )
+        outTuples.add( tuple )
+    }
+
+    /*
+    ** diagnostics
+    println "makeGenomeBrowserFilesChannelSetupTranspositionSites"
+    outTuples.each { aTuple ->
+        println "inBed: ${aTuple[0]}"
+        println "inTbi: ${aTuple[1]}"
+    }
+    */
+
+    return( outTuples )
+}
+
+
+/*
+** Set up channel for making read alignment bigwig file.
+*/
+def makeGenomeBrowserFilesChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected bed files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def fileName = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def inGenomicIntervals = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
+        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    /*
+    ** diagnostics
+    println "makeWindowedGenomeIntervalsChannelSetup"
+    outTuples.each { aTuple ->
+        println "sample: ${aTuple[1]['sample']}"
+        println "genomeSizes: ${aTuple[1]['genomeSizes']}"
+    }
+    */
+
+    return( outTuples )
 }
 
 

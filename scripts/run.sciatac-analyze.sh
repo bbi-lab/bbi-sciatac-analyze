@@ -3,20 +3,27 @@
 #
 # Path to the Nextflow processing run configuration file.
 #
-CONFIG_FILE="/xxx/params.config"
+PWD=`pwd`
+CONFIG_FILE="$PWD/experiment.config"
 
 #
 # Nextflow executable and pipeline script locations.
 #
-NEXTFLOW="/xxx/bin/nextflow"
-NF_ANALYZE="/xxx/bbi-sciatac-analyze/main.nf"
+NEXTFLOW="/net/gs/vol1/home/bge/bin/nextflow"
+NF_ANALYZE="/net/gs/vol1/home/bge/git/bbi-sciatac-analyze/main.nf"
 
 #
 # Get the path to the analyze output directory from
 # the configuration file and set the Nextflow work
 # directory to be in the analyze output directory.
+# Notes:
+#   o  bbi-sciatac-analyze/main.nf also defines ANALYZE_DIR as ${params.output_dir}/analyze_out so
+#      changing the ANALYZE_DIR here requires a change in main.nf as well.
+#   o  bbi-sciatac-analyze/main.nf defines DEMUX_DIR as ${params.output_dir}/demux_out so changes
+#      to DEMUX_DIR requires a change in main.nf as well.
 #
-ANALYZE_DIR=`cat $CONFIG_FILE | sed 's/[ ]*//g' | awk 'BEGIN{FS="="}{if($1=="params.analyze_dir"){print$2}}' | sed 's/"//g'`
+OUTPUT_DIR=`cat $CONFIG_FILE | sed 's/[ ]*//g' | awk 'BEGIN{FS="="}{if($1=="params.output_dir"){print$2}}' | sed 's/"//g'`
+ANALYZE_DIR="$OUTPUT_DIR/analyze_dir"
 WORK_DIR="$ANALYZE_DIR/work"
 
 #
@@ -30,7 +37,6 @@ TIMELINE_FIL="$ANALYZE_DIR/analyze.timeline.html"
 
 #
 # Nextflow run parameters.
-# Note: I include -resume for convenience. I does not affect the initial run.
 #
 PARS="-c $CONFIG_FILE -w $WORK_DIR -with-report $REPORT_FIL -with-trace $TRACE_FIL -with-timeline $TIMELINE_FIL -resume"
 
