@@ -9,6 +9,17 @@
 **   nextflow run main.nf -w <work_dirname> -with-report <report_filename> -with-trace <trace_filename> -with-timeline <timeline_filename>
 **
 ** Notes on NextFlow
+**   o  my effort to establish some definitions that may be
+**      fairly consistent with the Nextflow documentation
+**
+**      term                description
+**      ----                -----------
+**      process             Nextflow process block
+**      process instance    one process block execution (as submitted to the Sun Grid Engine (SGE))
+**      data unit           a simple or complex groovy data instance independent of a channel
+**      entry item          a simple or complex data unit composing a channel entry
+**      channel entry       an item or 'glob' of items submitted to a process instance
+**
 **   o  no groovy/java code allowed in process{} block (apparently)
 **      except in the script (multi-line) string where (at least)
 **      groovy/java variables can be used. (It looks like println
@@ -37,7 +48,7 @@
 **      channel must be duplicated using the .into{} operator. In
 **      contrast to the file content, the 'val' content is not
 **      consumed so it can be used in more than one process{} block.
-**   o  publishDir: files in the pattern statement must be in an output channel
+**   o  publishDir note: files in the pattern statement must be in an output channel
 **   o  take care to escape dollar signs in shell and script (such as awk script)
 **      substitutions. These unescaped dollar signs are interpreted as introducing
 **      NextFlow/groovy variables in strings. Unfortunately, NextFlow mis-identifies
@@ -61,7 +72,7 @@
 **     which may make sense. However, it complicates debugging because I want to
 **     comment out portions of the script that I suspect may cause a NextFlow
 **     error. (I have the impression that Groovy/Java comments are not allowed in
-**     the script string also, which makes sense.)
+**     the script string also, which makes sense.) Perhaps one can use '# // ...'?
 **  o  regarding files and channels and the resulting lists following the .toList()
 **     operator: it appears that when a single instance of a process block puts a
 **     single file into an output channel, the file appears as path variable in
@@ -82,13 +93,17 @@
 **     is to use generally the flatten operator immediately before the .toList()
 **     operator. I do know what happens if one uses the .flatten() operator on a
 **     'flat' channel but it seems reasonable to suppose that it does nothing.
+**  o  there is a test/example script that explores channels called channel_01.nf
+**     in bbi-sciatac-demux/nextflow
+** Notes on debugging Nextflow
+**   o  see the function writeChannelEntries() below for debugging channels
 **
 ** Notes on groovy
 **   o  scope (these may not be entirely accurate):
 **        o  any variable set without a type is a global variable, e.g., 'x = 3'. This
 **           can be a source of problems if 'def' is omitted erroneously when defining
 **           a list or dictionary in a function that is called more than once.
-**        o  'def' or any type creates a local variable, e.g. 'int x' or 'def x'.
+**        o  'def', or any type, creates a local variable, e.g. 'int x' or 'def x'.
 **        o  a local variable defined in the main script is accessible only within the main
 **           script (not in functions defined within the main script, it appears!)
 **        o  a local variable defined in a function is accessible only within that function
@@ -103,17 +118,17 @@
 **               }
 **
 ** Notes on this script
-**  o  I have tried to keep the comments and diagnostic output accurate
-**     but I am certain that there are instances in which I cut and pasted
-**     and forgot to edit the strings, or I edited the code and some
-**     comments/strings no longer describe accurately the resulting code.
+**  o  I have tried to keep the comments accurate but I am certain that there
+**     are instances in which I cut and pasted and forgot to edit the strings,
+**     or I edited the code and some comments/strings no longer describe
+**     accurately the resulting code.
 **  o  I regret the often long and complicated names; however,
 **     I have not noticed a more satisfying alternative. I considered
 **     abbreviations but strings of abbreviations in a name may
 **     create more ambiguity and difficulty in comprehension. Part
 **     of the challenge is distinguishing processes/variables/functions
 **     and instances of these that are similar but not identical, of
-**     which that are some in this script.
+**     which there are some in this script.
 **  o  process block naming conventions
 **        o  name ends with 'Process'
 **  o  variable naming conventions
@@ -136,7 +151,7 @@
 **          'getUniqueFragmentsOutChannelTranspositionSitesCopy01' (this is a
 **          ungainly name, for sure).
 **       o  in processes that have more than one input channel, I add
-**          the a description of the file type to the end of the channel
+**          a description of the file type to the end of the channel
 **          name. I may append the file description to single file type
 **          channels whose names do not adequately suggest the type of
 **          file in it.
@@ -175,9 +190,6 @@
 **  o  I dislike that there is more than one instance of the 'root' filename literal
 **     string for most of the (input/output) files. Perhaps I can define groovy
 **     variables to store these string literals: I am not certain that it can work.
-**     Consider defining the file name variables in process-related classes. Probably
-**     the class for the process in which the file is created. This would make it
-**     easy to identify the file source in downstream processing steps.
 **
 ** Tasks:
 **   o  work on src/summarize_cell_calls.R and generate_cistopic_model.R to
@@ -187,7 +199,6 @@
 **   o  add plots for Cailyn
 **   o  compact functions where possible
 **   o  write program for aggregating runs
-**   o  add in remaining downstream processes
 **   o  consider using string variables for filenames (define the variables in the process class: try to define processes that create (output) the files)
 **   o  update file_map.docx
 **   o  write JSON args.json file (perhaps write a sample-specific JSON file to each sample directory) (done)
@@ -211,7 +222,7 @@
 **        hasGeneScoreBed: hasGeneScoreBed
 **   o  consider writing functions to replace often repeated code
 **      such as checking for files in Groovy functions.
-**   o  check diagnostic strings (e.g., asserts)
+**   o  check diagnostic strings
 **   o  check comments for accuracy
 **   o  check conditional code blocks
 **   o  test run aggregation
@@ -264,9 +275,13 @@ def onError = { return( "retry" ) }
 */
 params.help = false
 params.max_cores = 16
+params.motif_calling_gc_bins = 25
+
 
 /*
 ** Initialize optional parameters to null.
+** Notes:
+**   boolean values: true/false
 */
 params.max_forks = null
 params.queue = null
@@ -291,14 +306,26 @@ if( params.help ) {
 /*
 ** Check for required parameters.
 */
-assert ( params.output_dir && params.genomes_json) : "missing config file: use -c CONFIG_FILE.config that includes demux_dir, analyze_dir, and genomes_json"
+if( !params.output_dir ) {
+	printErr( "Error: missing params.output_dir in parameter file" )
+	System.exit( -1 )
+}
+if( !params.genomes_json ) {
+	printErr( "Error: missing params.genomes_json in parameter file" )
+	System.exit( -1 )
+}
 
 /*
 ** Define demux_dir and analyze_dir.
 */
 output_dir = params.output_dir.replaceAll("/\\z", "")
 demux_dir = output_dir + '/demux_out'
-analyze_dir = output_dir + '/analyze_dir'
+analyze_dir = output_dir + '/analyze_out'
+
+/*
+** Check that required directories exist or can be made.
+*/
+checkDirectories( params )
 
 /*
 ** Report run parameter values.
@@ -309,11 +336,6 @@ reportRunParams( params )
 ** Archive configuration and samplesheet files in demux_dir.
 */
 archiveRunFiles( params, timeNow )
-
-/*
-** Check that required directories exist or can be made.
-*/
-checkDirectories( params )
 
 
 /*
@@ -400,18 +422,20 @@ Channel
 process sortTssBedProcess {
     cache 'lenient'
     errorStrategy onError
-	publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.bed.gz", mode: 'copy'
+	publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.tss_file.sorted.bed.gz", mode: 'copy'
 //    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*.bed.gz", mode: 'copy'
 	
 	input:
 	val tssBedMap from sortTssBedInChannel
 	
 	output:
-	file( "${tssBedMap['outBed']}" ) into sortTssBedOutChannel
+	file( "*.tss_file.sorted.bed.gz" ) into sortTssBedOutChannel
 	
 	script:
 	"""
-	zcat ${tssBedMap['inBed']} | sort -k1,1V -k2,2n -k3,3n | gzip > ${tssBedMap['outBed']}
+	outBed="${tssBedMap['sample']}-${tssBedMap['genome']}.tss_file.sorted.bed.gz"
+
+	zcat ${tssBedMap['inBed']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}
 	"""
 }
 
@@ -430,17 +454,19 @@ Channel
 process sortChromosomeSizeProcess {
     cache 'lenient'
     errorStrategy errorStrategy { sleep(Math.pow(2, task.attempt) * 200); return 'retry' }
-	publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.txt", mode: 'copy'
+	publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.chromosome_sizes.sorted.txt", mode: 'copy'
 	
 	input:
 	val chromosomeSizeMap from sortChromosomeSizeInChannel
 	
 	output:
-	file( "${chromosomeSizeMap['outTxt']}" ) into sortChromosomeSizeOutChannel
+	file( "*.chromosome_sizes.sorted.txt" ) into sortChromosomeSizeOutChannel
 	
 	script:
 	"""
-	cat ${chromosomeSizeMap['inTxt']} | sort -k1,1V -k2,2n -k3,3n > ${chromosomeSizeMap['outTxt']}
+	outTxt="${chromosomeSizeMap['sample']}-${chromosomeSizeMap['genome']}.chromosome_sizes.sorted.txt"
+
+	cat ${chromosomeSizeMap['inTxt']} | sort -k1,1V -k2,2n -k3,3n > \${outTxt}
 	"""
 }
 
@@ -487,15 +513,17 @@ process runAlignProcess {
 
 	script:
 	"""
+	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
+
 	bowtie2 -3 1 \
 		-X 2000 \
 		-p ${task.cpus} \
 		-x ${alignMap['genome_index']} \
 		-1 ${alignMap['fastq1']} \
 		-2 ${alignMap['fastq2']} ${alignMap['seed']} \
-		| samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > ${alignMap['bamfile']}.tmp.bam
-        samtools sort -T ${alignMap['bamfile']}.sorttemp --threads 4 ${alignMap['bamfile']}.tmp.bam -o ${alignMap['bamfile']}
-        rm ${alignMap['bamfile']}.tmp.bam
+		| samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > \${outBam}.tmp.bam
+        samtools sort -T \${outBam}.sorttemp --threads 4 \${outBam}.tmp.bam -o \${outBam}
+        rm \${outBam}.tmp.bam
 	"""
 }
 
@@ -522,13 +550,15 @@ process mergeBamsProcess {
 	
 	script:
 	"""
-	sambamba merge --nthreads 8 ${inMergeBamMap['outBam']} ${inBams}
-	samtools index ${inMergeBamMap['outBam']}
+	outBam="${inMergeBamMap['sample']}-merged.bam"
+	
+	sambamba merge --nthreads 8 \${outBam} ${inBams}
+	samtools index \${outBam}
 
     mkdir -p ${analyze_dir}/${inMergeBamMap['sample']}/genome_browser
     pushd ${analyze_dir}/${inMergeBamMap['sample']}/genome_browser
-    ln -s ../merge_bams/${inMergeBamMap['outBam']} .
-    ln -s ../merge_bams/${inMergeBamMap['outBam']}.bai .
+    ln -sf ../merge_bams/\${outBam} .
+    ln -sf ../merge_bams/\${outBam}.bai .
     popd
 	"""
 }
@@ -567,7 +597,7 @@ process getUniqueFragmentsProcess {
 //    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) },       pattern: "*-read_alignments.bw", mode: 'copy'
     
 	input:
-	set file( inBam ), file(inBai), uniqueFragmentsMap from getUniqueFragmentsInChannelBam
+	set file( inBam ), file(inBai), inUniqueFragmentsMap from getUniqueFragmentsInChannelBam
     set file( inGenomeSizes ), inGenomeSizesMap from getUniqueFragmentsInChannelChromosomeSizes
 
 	output:
@@ -582,26 +612,35 @@ process getUniqueFragmentsProcess {
 	"""
 	source ${pipeline_path}/load_python_env_reqs.sh
 	source ${script_dir}/python_env/bin/activate
+
+	outFragments="${inUniqueFragmentsMap['sample']}-fragments.txt"
+	outTranspositionSites="${inUniqueFragmentsMap['sample']}-transposition_sites.bed"
+	outInsertSizes="${inUniqueFragmentsMap['sample']}-insert_sizes.txt"
+	outDuplicateReport="${inUniqueFragmentsMap['sample']}-duplicate_report.txt"
 	
-	fragments_uncompressed=`echo "${uniqueFragmentsMap['fragments_file']}" | sed 's/.gz//'`
-	transposition_sites_uncompressed=`echo "${uniqueFragmentsMap['transposition_sites_file']}" | sed 's/.gz//'`
+	fragments_uncompressed=`echo "${inUniqueFragmentsMap['fragments_file']}" | sed 's/.gz//'`
+	transposition_sites_uncompressed=`echo "${inUniqueFragmentsMap['transposition_sites_file']}" | sed 's/.gz//'`
+
 	python ${script_dir}/get_unique_fragments.py \
 		${inBam} \
-		--fragments \$fragments_uncompressed \
-		--transposition_sites_bed \$transposition_sites_uncompressed \
-		--duplicate_read_counts ${uniqueFragmentsMap['duplicate_report']} \
-		--insert_sizes ${uniqueFragmentsMap['insert_sizes_file']}
+		--fragments \${outFragments} \
+		--transposition_sites_bed \${outTranspositionSites} \
+		--duplicate_read_counts \${outDuplicateReport} \
+		--insert_sizes \${outInsertSizes}
 
 	# Index BAM file / bgzip tabix index for fragments file and transposition_sites BED
-	bgzip -f \$fragments_uncompressed
-	tabix -p bed ${uniqueFragmentsMap['fragments_file']}
+	bgzip -f \${outFragments}
+	tabix -p bed \${outFragments}.gz
 
-	bgzip -f \$transposition_sites_uncompressed
-	tabix -p bed ${uniqueFragmentsMap['transposition_sites_file']}
+	bgzip -f \${outTranspositionSites}
+	tabix -p bed \${outTranspositionSites}.gz
 
     # Make bedGraph file for genome browser.
-    bedtools genomecov -ibam ${inBam} -bga | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > ${inGenomeSizesMap['outBedGraphFile']}
-    # bedGraphToBigWig ${inGenomeSizesMap['outBedGraphFile']} $inGenomeSizes ${inGenomeSizesMap['outBigWigFile']}
+    outBedGraph="${inGenomeSizesMap['sample']}-read_alignments.bedgraph"
+    outBigWig="${inGenomeSizesMap['sample']}-read_alignments.bw"
+    
+    bedtools genomecov -ibam ${inBam} -bga | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > \${outBedGraph}
+    # bedGraphToBigWig \${outBedGraph} $inGenomeSizes \${outBigWig}
 	"""
 }
 
@@ -619,6 +658,9 @@ getUniqueFragmentsOutChannelTranspositionSites
             getUniqueFragmentsOutChannelTranspositionSitesCopy07;
             getUniqueFragmentsOutChannelTranspositionSitesCopy08 }
 
+getUniqueFragmentOutChannelFragments
+	.set { getUniqueFragmentOutChannelFragmentsCopy01 }
+	
 	
 /*
 ** ================================================================================
@@ -626,9 +668,6 @@ getUniqueFragmentsOutChannelTranspositionSites
 ** ================================================================================
 */
 
-/*
-** Merge alignment bam files.
-*/
 getUniqueFragmentsOutChannelTranspositionSitesCopy01
     .flatten()
 	.toList()
@@ -643,7 +682,7 @@ process callPeaksProcess {
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-summits.bed", mode: 'copy'
 
 	input:
-	set file( inBed ), file(inTbi), callPeaksMap from callPeaksInChannel
+	set file( inBed ), file(inTbi), inCallPeaksMap from callPeaksInChannel
 
 	output:
 	file( "*-peaks.narrowPeak.gz" ) into callPeaksOutChannelNarrowPeak
@@ -652,30 +691,38 @@ process callPeaksProcess {
 	
     script:
 	"""
+	# MACS uses an underscore between the sample name and the file type
+	# so we need to rename output files.
+	outDir="call_peaks"
+	outMacsNarrowPeak="\${outDir}/${inCallPeaksMap['sample']}_peaks.narrowPeak"
+	outNarrowPeak="${inCallPeaksMap['sample']}-peaks.narrowPeak.gz"
+	outMacsXls="\${outDir}/${inCallPeaksMap['sample']}_peaks.xls"
+	outXls="${inCallPeaksMap['sample']}-peaks.xls"
+	outMacsSummits="\${outDir}/${inCallPeaksMap['sample']}_summits.bed"
+	outSummits="${inCallPeaksMap['sample']}-summits.bed"
+	
     # We used to add --shift -100 and --extsize, but the regions are now pre-shifted and extended
     # as output by other stages (ajh).
 	macs2 callpeak -t ${inBed} \
 		-f BED \
-		-g ${callPeaksMap['macs_genome']} \
+		-g ${inCallPeaksMap['macs_genome']} \
 		--nomodel \
 		--shift -100 \
 		--extsize 200 \
 		--keep-dup all \
 		--call-summits \
-		-n ${callPeaksMap['sample_name']} \
-		--outdir ${callPeaksMap['out_dir']} 2> /dev/null
+		-n ${inCallPeaksMap['sample']} \
+		--outdir \${outDir} 2> /dev/null
 
-	cat ${callPeaksMap['out_dir']}/${callPeaksMap['sample_name']}_peaks.narrowPeak \
+	cat \${outMacsNarrowPeak} \
 		| sort -k1,1V -k2,2n -k3,3n \
 		| cut -f1-3 \
-		| gzip > ${callPeaksMap['macs_narrowpeak_file']}
+		| gzip > \${outNarrowPeak}
 
-	# rename the files using our convention of <sample_name>-* (macs2 names the file with an underscore after the sample name)
-	mv ${callPeaksMap['macs_narrowpeak_file']} ${callPeaksMap['output_narrowpeak_file']}
-	mv ${callPeaksMap['macs_xls_file']} ${callPeaksMap['output_xls_file']}
-	mv ${callPeaksMap['macs_summits_file']} ${callPeaksMap['output_summits_file']}
+	mv \${outMacsXls} \${outXls}
+	mv \${outMacsSummits} \${outSummits}
 	
-	rm ${callPeaksMap['out_dir']}/${callPeaksMap['sample_name']}_peaks.narrowPeak
+	rm \${outMacsNarrowPeak}
 	"""
 }
 
@@ -712,11 +759,13 @@ process mergePeaksProcess {
 			
 	script:
 	"""
+	outBed="${mergePeaksMap['sample']}-merged_peaks.bed"
+	
     zcat ${inBed} \
         | cut -f1-3 \
         | sort -k1,1V -k2,2n -k3,3n \
         | bedtools merge -i - \
-        | sort -k1,1V -k2,2n -k3,3n > ${mergePeaksMap['outBed']}
+        | sort -k1,1V -k2,2n -k3,3n > \${outBed}
 	"""
 }
 	
@@ -725,7 +774,9 @@ mergePeaksOutChannel
             mergePeaksOutChannelCopy02;
             mergePeaksOutChannelCopy03;
             mergePeaksOutChannelCopy04;
-            mergePeaksOutChannelCopy05 }
+            mergePeaksOutChannelCopy05;
+            mergePeaksOutChannelCopy06;
+            mergePeaksOutChannelCopy07 }
 
     
 /*
@@ -755,10 +806,12 @@ process makeWindowedGenomeIntervalsProcess {
         
 	script:
 	"""
+	outBed="${inGenomeSizesMap['sample']}-genomic_windows.bed"
+	
     bedtools makewindows \
         -g ${inGenomeSizes} \
         -w ${task.ext.window_size} \
-        > ${inGenomeSizesMap['outGenomicWindows']}
+        > \${outBed}
 	"""
 }
 
@@ -787,15 +840,18 @@ process makePromoterSumIntervalsProcess {
     file( "*-gene_regions.bed.gz" ) into makePromoterSumIntervalsOutChannel
     file( "*-gene_regions_note.txt" ) into makePromoterSumIntervalsOutChannelDeadend
 
-        script:
-        if( inMap['hasGeneScoreBed'] == 1 )
-        """
-        zcat ${inMap['inBedFile']} | sort -k1,1V -k2,2n -k3,3n | gzip > ${inMap['outBed']}
+    script:
+    if( inMap['hasGeneScoreBed'] == 1 )
+    	"""
+    	outBed="${inMap['sample']}-gene_regions.bed.gz"
+        
+        zcat ${inMap['inBedFile']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}
         echo "Gene score bed file was used to define gene regions" > ${inMap['sample']}-gene_regions_note.txt
         """
-
-        else
+	else
         """
+        outBed="${inMap['sample']}-gene_regions.bed.gz"
+        
         bedtools closest \
             -d \
             -a ${inPath} \
@@ -810,7 +866,7 @@ process makePromoterSumIntervalsProcess {
         | awk '{{ if (\$10 <= ${task.ext.peak_to_tss_distance_threshold} ) print \$0 }}' \
         | cut -f 1,2,3,7 \
         | sort -k1,1V -k2,2n -k3,3n \
-        | uniq | gzip > ${inMap['outBed']}
+        | uniq | gzip > \${outBed}
         echo "TSS definitions and peak locations were used to define gene regions (check this description)" > ${inMap['sample']}-gene_regions_note.txt
         """
 }
@@ -859,18 +915,19 @@ process makeMergedPeakRegionCountsProcess {
 	source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
-    TEMP_REGION_FILE="${inMergedPeaksMap['sample']}-temp_regions.gz"
-    
+	outCounts="${inMergedPeaksMap['sample']}-peak_counts.txt"
+	tmpRegions="${inMergedPeaksMap['sample']}-temp_regions.gz"
+	
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
     bedtools slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance} \
     | bedtools merge -i stdin \
-    | gzip > \${TEMP_REGION_FILE}
+    | gzip > \${tmpRegions}
 
     python ${script_dir}/get_region_counts.py \
-        --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
-        --output_file ${inMergedPeaksMap['peakCountsOut']}
+        --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${tmpRegions}) \
+        --output_file \${outCounts}
 
-    rm \${TEMP_REGION_FILE}
+    rm \${tmpRegions}
 	"""
 }
 
@@ -912,19 +969,20 @@ process makeTssRegionCountsProcess {
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
-    TEMP_REGION_FILE="${inTssRegionMap['sample']}-temp_regions.gz"
-
+	outCounts="${inTssRegionMap['sample']}-tss_counts.txt"
+	tmpRegions="${inTssRegionMap['sample']}-temp_regions.gz"
+	
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
 
     bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance} \
     | bedtools merge -i stdin \
-    | gzip > \${TEMP_REGION_FILE}
+    | gzip > \${tmpRegions}
 
     python ${script_dir}/get_region_counts.py \
-        --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${TEMP_REGION_FILE}) \
-        --output_file ${inTssRegionMap['tssCountsOut']}
+        --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${tmpRegions}) \
+        --output_file \${outCounts}
 
-    rm \${TEMP_REGION_FILE}
+    rm \${tmpRegions}
     """
 }
 
@@ -935,9 +993,6 @@ process makeTssRegionCountsProcess {
 ** ================================================================================
 */
 
-/*
-** Make count reports.
-*/
 getUniqueFragmentsOutChannelDuplicateReport
     .toList()
     .flatMap { makeCountReportsChannelSetupDuplicateReport( it, sampleSortedNames ) }
@@ -968,7 +1023,9 @@ process makeCountReportsProcess {
 
 	script:
 	"""
-    Rscript ${script_dir}/make_count_report.R ${inDuplicateReport} ${inMergedPeakRegionCounts} ${inTssRegionCounts} ${inDuplicateReportMap['outCountReport']}
+	outCountReport="${inDuplicateReportMap['sample']}-count_report.txt"
+	
+    Rscript ${script_dir}/make_count_report.R ${inDuplicateReport} ${inMergedPeakRegionCounts} ${inTssRegionCounts} \${outCountReport}
 	"""
 }
 
@@ -983,9 +1040,12 @@ makeCountReportsOutChannel
 ** ================================================================================
 */
 
-/*
-** Get cell calls.
-*/
+if( params.reads_threshold != null ) {
+	readsThresholdParameter = "--reads_threshold ${params.reads_threshold}"
+}
+else {
+readsThresholdParameter = ""
+}
 
 makeCountReportsOutChannelCopy01
     .toList()
@@ -1012,13 +1072,17 @@ process callCellsProcess {
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
-    python ${script_dir}/call_cells.py ${inCountReportMap['outCalledCellsCounts']} \
-                                       ${inCountReportMap['outCellWhitelist']} \
-                                       --fit_metadata ${inCountReportMap['outCallCellsStats']} \
-                                       --count_report ${inCountReport} ${inCountReportMap['readsThreshold']}
+	outCalledCellsCounts="${inCountReportMap['sample']}-called_cells.txt"
+	outCellWhiteList="${inCountReportMap['sample']}-called_cells_whitelist.txt"
+	outCallCellsStats="${inCountReportMap['sample']}-called_cells_stats.json"
+	
+    python ${script_dir}/call_cells.py \${outCalledCellsCounts} \
+                                       \${outCellWhiteList} \
+                                       --fit_metadata \${outCallCellsStats} \
+                                       --count_report ${inCountReport} ${readsThresholdParameter}
 
-    mv ${inCountReportMap['outCellWhitelist']} cell_whitelist.txt.tmp
-    sort cell_whitelist.txt.tmp > ${inCountReportMap['outCellWhitelist']}
+    mv \${outCellWhiteList} cell_whitelist.txt.tmp
+    sort cell_whitelist.txt.tmp > \${outCellWhiteList}
     rm cell_whitelist.txt.tmp
 	"""
 }
@@ -1026,7 +1090,8 @@ process callCellsProcess {
 callCellsOutChannelCalledCellsWhitelist
     .into { callCellsOutChannelCalledCellsWhitelistCopy01;
             callCellsOutChannelCalledCellsWhitelistCopy02;
-            callCellsOutChannelCalledCellsWhitelistCopy03 }
+            callCellsOutChannelCalledCellsWhitelistCopy03;
+            callCellsOutChannelCalledCellsWhitelistCopy04 }
 
 
 /*
@@ -1035,9 +1100,6 @@ callCellsOutChannelCalledCellsWhitelist
 ** ================================================================================
 */
 
-/*
-** Get per base coverage TSS region coverage
-*/
 getUniqueFragmentsOutChannelTranspositionSitesCopy04
     .flatten()
     .toList()
@@ -1069,20 +1131,21 @@ process getPerBaseCoverageTssProcess {
 
 	script:
 	"""
-    TEMP_OUTPUT_FILE="${inTssRegionMap['sample']}-temp_file.gz"
-    
+	outCoverage="${inTssRegionMap['sample']}-tss_region_coverage.txt.gz"
+	tmpOut="${inTssRegionMap['sample']}-temp_file.gz"
+	
     # First get 2kb regions surrounding TSSs (not strand-specific here)
     # then calculate per-base coverage with bedtools
     # then write any non-zero entries to a file
     bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance}  \
     | bedtools coverage -sorted -d -a stdin -b ${inTranspositionSites} \
     | awk '{{ if (\$8 > 0) print \$0 }}' \
-    | gzip > \${TEMP_OUTPUT_FILE}
+    | gzip > \${tmpOut}
 
     # Aggregate per-position coverage over all positions across genes, taking strand into account
-    Rscript ${script_dir}/aggregate_per_base_tss_region_counts.R \${TEMP_OUTPUT_FILE} ${inTssRegionMap['outCoverage']}
+    Rscript ${script_dir}/aggregate_per_base_tss_region_counts.R \${tmpOut} \${outCoverage}
 
-    rm \${TEMP_OUTPUT_FILE}
+    rm \${tmpOut}
 	"""
 }
 
@@ -1120,8 +1183,7 @@ sortChromosomeSizeOutChannelCopy05
 process makePeakMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-peak_matrix.mtx.gz", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-peak_matrix.*", mode: 'copy'
 
 	input:
 	set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makePeakMatrixInChannelTranspositionSites
@@ -1130,19 +1192,21 @@ process makePeakMatrixProcess {
     set file( inChromosomeSizes ), inChromosomeSizesMap from makePeakMatrixChannelInChannelChromosomeSizes
 
 	output:
-	file( "*-peak_matrix.mtx.gz" ) into makePeakMatrixOutChannel
-    file( "*.txt" ) into makePeakMatrixOutChannelDeadend
+	file( "*-peak_matrix.*" ) into makePeakMatrixOutChannel
 
 	script:
 	"""
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
+	outPeakMatrix="${inMergedPeaksMap['sample']}-peak_matrix.mtx.gz"
+	
     python ${script_dir}/generate_sparse_matrix.py \
     --transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inMergedPeaks} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inMergedPeaks} \
     --cell_whitelist ${inCellWhitelist} \
-    --matrix_output ${inMergedPeaksMap['outPeakMatrix']}
+    --matrix_output \${outPeakMatrix}
+    echo "foo" > /dev/null
 	"""
 }
 
@@ -1174,8 +1238,7 @@ sortChromosomeSizeOutChannelCopy06
 process makeWindowMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-window_matrix.mtx.gz", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-window_matrix.*", mode: 'copy'
 
 	input:
     set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makeWindowMatrixInChannelTranspositionSites
@@ -1184,18 +1247,20 @@ process makeWindowMatrixProcess {
     set file( inChromosomeSizes ), inChromosomeSizesMap from makeWindowMatrixChannelInChannelChromosomeSizes
 
 	output:
-	file( "*" ) into makeWindowMatrixOutChannel
+	file( "*-window_matrix.*" ) into makeWindowMatrixOutChannel
 
 	script:
 	"""
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
+	outWindowMatrix="${inWindowedIntervalsMap['sample']}-window_matrix.mtx.gz"
+	
     python ${script_dir}/generate_sparse_matrix.py \
     --transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inWindowedIntervals} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inWindowedIntervals} \
     --cell_whitelist ${inCellWhitelist} \
-    --matrix_output ${inWindowedIntervalsMap['outWindowMatrix']}
+    --matrix_output \${outWindowMatrix}
 	"""
 }
 
@@ -1227,28 +1292,30 @@ sortChromosomeSizeOutChannelCopy07
 process makePromoterMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-promoter_matrix.mtx.gz", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "make_matrices" ) }, pattern: "*-promoter_matrix.*", mode: 'copy'
 
 	input:
     set file( inTranspositionSites ), file( inTbiTranspositionSites ), inTranspositionSitesMap from makePromoterMatrixInChannelTranspositionSites
     set file( inGeneRegions ), inGeneRegionsMap from makePromoterMatrixInChannelGeneRegions
     set file( inCellWhitelist ), inCellWhitelistMap from makePromoterMatrixInChannelCellWhitelist
     set file( inChromosomeSizes ), inChromosomeSizesMap from makePromoterMatrixChannelInChannelChromosomeSizes
+    
 	output:
-	file( "*-promoter_matrix.mtx.gz" ) into makePromoterMatrixOutChannel
-    file( "*.txt" ) into makePromoterMatrixOutChannelDeadend
+	file( "*-promoter_matrix.*" ) into makePromoterMatrixOutChannel
 
 	script:
 	"""
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
+	outPromoterMatrix="${inGeneRegionsMap['sample']}-promoter_matrix.mtx.gz"
+	
     python ${script_dir}/generate_sparse_matrix.py \
     --transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inGeneRegions} -b ${inTranspositionSites} -wa -wb) \
     --intervals ${inGeneRegions} \
     --cell_whitelist ${inCellWhitelist} \
-    --matrix_output ${inGeneRegionsMap['outPromoterMatrix']}
+    --matrix_output \${outPromoterMatrix}
+    
     mv ${inGeneRegionsMap['inPromoterMatrixRows']} promoter_matrix_rows.txt.no_metadata
     ${script_dir}/add_gene_metadata.py --in_promoter_matrix_row_name_file promoter_matrix_rows.txt.no_metadata \
                                        --gene_metadata_file ${inGeneRegionsMap['inGeneBodiesGeneMap']} \
@@ -1324,6 +1391,7 @@ process summarizeCellCallsProcess {
     module 'openjdk/latest:modules:modules-init:modules-gs'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.pdf", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.stats.txt", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_dash", pattern: "*.png", mode: 'copy'
 
     input:
     set file( inCountReports ), inCountReportsMap from summarizeCellCallsInChannelCountReports
@@ -1338,13 +1406,17 @@ process summarizeCellCallsProcess {
     output:
     file( "*-called_cells_summary.pdf" ) into summarizeCellCallsOutChannelCallCellsSummaryPlot
     file( "*-called_cells_summary.stats.txt" ) into summarizeCellCallsOutChannelCallCellsSummaryStats
-
+    file( "*.png") into summarizeCellCallsOutChannelDashboardPlots
+    
     script:
     """
-    BARNYARD_PARAMS=""
+    outSummaryPlot="${inCountReportsMap['sample']}-called_cells_summary.pdf"
+    outSummaryStats="${inCountReportsMap['sample']}-called_cells_summary.stats.txt"
+    
+    barnyardParams=""
     if [ "${inBarnyardMap['isBarnyard']}" == 1 ]
     then
-        BARNYARD_PARAMS="--window_matrices ${inWindowMatrix} --barnyard"
+        barnyardParams="--window_matrices ${inWindowMatrix} --barnyard"
     fi
     
     Rscript ${script_dir}/summarize_cell_calls.R \
@@ -1355,8 +1427,8 @@ process summarizeCellCallsProcess {
         --peak_call_files ${inNarrowPeaks} \
         --merged_peaks ${inMergedPeaks} \
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
-        --plot ${inCountReportsMap['outSummaryPlot']} \
-        --output_stats ${inCountReportsMap['outSummaryStats']} \${BARNYARD_PARAMS}
+        --plot \${outSummaryPlot} \
+        --output_stats \${outSummaryStats} \${barnyardParams}
     """
 }
 
@@ -1366,6 +1438,7 @@ process summarizeCellCallsProcess {
 ** Make genome browser files.
 ** ================================================================================
 */
+
 sortTssBedOutChannelCopy03
     .toList()
     .flatMap{ makeGenomeBrowserFilesChannelSetupTss( it, sampleSortedNames, sampleGenomeMap ) }
@@ -1411,44 +1484,73 @@ process makeGenomeBrowserFilesProcess {
 
     script:
     """
+    outTssGb="${inTssRegionsMap['sample']}-${inTssRegionsMap['genome']}.tss_file.sorted.gb"
+    outMergedPeaksGb="${inMergedPeaksMap['sample']}-merged_peaks.gb"
+    outTranspositionSitesGb="${inTranspositionSitesMap['sample']}-transposition_sites.gb"
+    
     awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' $inChromosomeSizes > chromosome_size.txt.edited
 
-    zcat $inTssRegions | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1'> ${inTssRegionsMap['outBedFile']}
-    bedToBigBed -tab ${inTssRegionsMap['outBedFile']} chromosome_size.txt.edited ${inTssRegionsMap['outBigBedFile']}
-    bgzip ${inTssRegionsMap['outBedFile']}
-    tabix -p bed ${inTssRegionsMap['outBedFile']}.gz
+    zcat $inTssRegions | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1'> \${outTssGb}.bed
+    bedToBigBed -tab \${outTssGb}.bed chromosome_size.txt.edited \${outTssGb}.bb
+    bgzip \${outTssGb}.bed
+    tabix -p bed \${outTssGb}.bed.gz
 
-    cat $inMergedPeaks | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > ${inMergedPeaksMap['outBedFile']}
-    bedToBigBed -tab ${inMergedPeaksMap['outBedFile']} chromosome_size.txt.edited ${inMergedPeaksMap['outBigBedFile']}
+    cat $inMergedPeaks | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > \${outMergedPeaksGb}.bed
+    bedToBigBed -tab \${outMergedPeaksGb}.bed chromosome_size.txt.edited \${outMergedPeaksGb}.bb
     
-    zcat $inTranspositionSites | $script_dir/trim_bed_stream.py $inChromosomeSizes | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > ${inTranspositionSitesMap['outBedFile']}
-    bedToBigBed -tab ${inTranspositionSitesMap['outBedFile']} chromosome_size.txt.edited ${inTranspositionSitesMap['outBigBedFile']}
-    bgzip ${inTranspositionSitesMap['outBedFile']}
-    tabix -p bed ${inTranspositionSitesMap['outBedFile']}.gz
+    zcat $inTranspositionSites | $script_dir/trim_bed_stream.py $inChromosomeSizes | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > \${outTranspositionSitesGb}.bed
+    bedToBigBed -tab \${outTranspositionSitesGb}.bed chromosome_size.txt.edited \${outTranspositionSitesGb}.bb
+    bgzip \${outTranspositionSitesGb}.bed
+    tabix -p bed \${outTranspositionSitesGb}.bed.gz
     """
 }
 
 
 /*
-** Get per cell insert sizes (optional).
-**
-process getPerCellInsertSizesProcess {
+** ================================================================================
+** Get per cell insert sizes and banding scores (optional).
+** ================================================================================
+*/
+
+/*
+** Input files.
+**   ajh var                 ajh filename                   nf channel
+**   fragments_file          %s.fragments.txt.gz            getUniqueFragmentOutChannelFragmentsCopy01
+**   cell_whitelist          %s.cell_whitelist.txt          callCellsOutChannelCalledCellsWhitelistCopy04
+** Output files.
+**   per_cell_insert_sizes   %s.per_cell_insert_sizes.txt   getPerCellInsertSizesOutChannel
+**   banding_scores          %s.banding_scores.txt          getBandingScoresOutChannel
+*/
+
+getUniqueFragmentOutChannelFragmentsCopy01
+	.flatten()
+    .toList()
+    .flatMap{ getBandingScoresChannelSetupFragments( it, sampleSortedNames ) }
+    .set { getBandingScoresInChannelFragments }
+    
+callCellsOutChannelCalledCellsWhitelistCopy04
+    .toList()
+    .flatMap { getBandingScoresChannelSetupCellWhitelist( it, sampleSortedNames ) }
+    .set { getBandingScoresInChannelCellWhitelist }
+
+process getBandingScoresProcess {
     cache 'lenient'
     errorStrategy onError
-//    cpus perCellInsertSizes.max_cores
-//    memory "${perCellInsertSizes.memory} GB"
-    module 'openjdk/latest:modules:modules-init:modules-gs:zlib/1.2.6:samtools/1.9'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "banding_scores" ) }, pattern: "*-per_cell_insert_sizes.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "banding_scores" ) }, pattern: "*-banding_scores.txt", mode: 'copy'
 
     input:
-    xxx
-
+    set file( inFragments ), file(inFragmentsTbi), inFragmentsMap from getBandingScoresInChannelFragments
+    set file( inCellWhitelist ), inCellWhiteListMap from getBandingScoresInChannelCellWhitelist
+    
     output:
-    xxx
+    file( "*-per_cell_insert_sizes.txt" ) into getBandingScoresOutChannelCellInsertSizes
+    file( "*-banding_scores.txt" ) into getBandingScoresOutChannelBandingScores
 
 //        # OPTIONAL BANDING SCORES QC
 //        if args.calculate_banding_scores:
-//            pipeline.add_job(GetPerCellInsertSizes(fragments_file[i], per_cell_insert_sizes[i], cell_whitelist[i]))
+//            pipeline.add_job(GetPerCellInsertSizes(fragments_file[i], per_cell_insert_sizes[i], cell_whitelist[i]))  // previous process
 //            pipeline.add_job(GetBandingScores(per_cell_insert_sizes[i], banding_scores[i], cell_whitelist[i]))
 //
 //class GetPerCellInsertSizes:
@@ -1467,37 +1569,6 @@ process getPerCellInsertSizesProcess {
 //
 //        python {SCRIPTS_DIR}/get_insert_size_distribution_per_cell.py {fragments_file} {output_file} --barcodes {cell_whitelist}
 //        """.format(PIPELINE_PATH=PIPELINE_PATH, SCRIPTS_DIR=SCRIPTS_DIR, fragments_file=fragments_file, cell_whitelist=cell_whitelist, output_file=output_file)
-
-    script:
-    """
-    xxx
-    """
-}
-*/
-
-
-/*
-** Get banding scores (optional)..
-**
-process getBandingScoresProcess {
-    cache 'lenient'
-    errorStrategy onError
-    penv 'serial'
-//    cpus bandingScores.max_cores
-//    memory "${bandingScores.memory} GB"
-    module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
-
-    input:
-    xxx
-
-    output:
-    xxx
-
-//        # OPTIONAL BANDING SCORES QC
-//        if args.calculate_banding_scores:
-//            pipeline.add_job(GetPerCellInsertSizes(fragments_file[i], per_cell_insert_sizes[i], cell_whitelist[i]))
-//            pipeline.add_job(GetBandingScores(per_cell_insert_sizes[i], banding_scores[i], cell_whitelist[i]))
 //
 //class GetBandingScores:
 //    def __init__(self, insert_size_file, banding_scores_file, cell_whitelist):
@@ -1509,33 +1580,83 @@ process getBandingScoresProcess {
 //        Rscript {SCRIPTS_DIR}/calculate_nucleosome_banding_scores.R {insert_size_file} {banding_scores_file} --barcodes {cell_whitelist}
 //        """.format(SCRIPTS_DIR=SCRIPTS_DIR, insert_size_file=insert_size_file, banding_scores_file=banding_scores_file, cell_whitelist=cell_whitelist)
 
+	when:
+		params.calculate_banding_scores
 
     script:
     """
-    xxx
+    # output filenames
+    source ${pipeline_path}/load_python_env_reqs.sh
+    source ${script_dir}/python_env/bin/activate
+    
+    outPerCellInsertSizesFile="${inFragmentsMap['sample']}-per_cell_insert_sizes.txt"
+    outBandingScoresFile="${inFragmentsMap['sample']}-banding_scores.txt"
+    
+    python ${script_dir}/get_insert_size_distribution_per_cell.py ${inFragments} \${outPerCellInsertSizesFile} --barcodes ${inCellWhitelist}
+    
+    Rscript ${script_dir}/calculate_nucleosome_banding_scores.R \${outPerCellInsertSizesFile} \${outBandingScoresFile} --barcodes ${inCellWhitelist}
     """
 }
-*/
 
 
 /*
+** ================================================================================
 ** Call motifs.
+** ================================================================================
+*/
+
+/*
+** Input files.
+**   ajh var                 ajh filename           nf channel
+**   fasta  (from genome.json file path)
+**   merged_peaks                                   *-merged_peaks.bed
+**   motifs (from genome.json file path)
+** Output files.
+**   output_file/peak_motif_files  gc_binned.%s.peak_calls.bb xxx
+** Notes:
+**   o  require genome information, which depends on sample
+**   o  there is an 'each' input channel thingy, which is likely
+**      to accomplish the same function as the .combine() operator
+**      below. It may make sense to modify this sometime in the
+**      future, in order to simplify this process a bit. See
+**      https://www.nextflow.io/docs/latest/faq.html  How do I iterate over a process n times?
+**      process bootstrapReplicateTrees {
+**        publishDir "$results_path/$datasetID/bootstrapsReplicateTrees"
 **
+**        input:
+**        each x from 1..bootstrapReplicates
+**        set val(datasetID), file(ClustalwPhylips)
+**
+**        output:
+**        file "bootstrapTree_${x}.nwk" into bootstrapReplicateTrees
+**
+**        script:
+*/
+
+Channel
+	.fromList( 0..params.motif_calling_gc_bins-1 )
+	.set { gcBinsInChannel }
+
+mergePeaksOutChannelCopy06
+	.combine( gcBinsInChannel )
+	.toList()
+	.flatMap { callMotifsChannelSetupMergedPeaks( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { callMotifsInChannelCombined }
+
 process callMotifsProcess {
 	cache 'lenient'
     errorStrategy onError
-	penv 'serial'
-//	cpus callMotifs.max_cores
-//	memory "${callMotifs.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "peak_motifs" ) }, pattern: "*-peak_calls.bb", mode: 'copy'
 
 	input:
-	xxx
+	set file( inMergedPeaks ), inMergedPeaksMap from callMotifsInChannelCombined
 
 	output:
-	xxx
-
+	file( "*-peak_calls.bb" ) into callMotifsOutChannelPeakCalls
+	
+// MOTIF_CALLING_GC_BINS = 25
+// peak_motif_files = [os.path.join(PEAK_MOTIFS_PATH, 'gc_binned.%s.peak_calls.bb' % gc_bin) for gc_bin in range(1, MOTIF_CALLING_GC_BINS + 1)]
 //    # MOTIF CALLING IN PEAKS + MOTIF MATRIX THAT IS PER PEAK SET NOT PER SAMPLE
 //    motif_calling_outputs = []
 //    run_motif_calling = 'motifs' in GENOME_FILES[args.genome] and 'fasta' in GENOME_FILES[args.genome]
@@ -1569,32 +1690,62 @@ process callMotifsProcess {
 //        python {SCRIPTS_DIR}/call_peak_motifs.py {fasta} {peaks} {motifs} {output_file} --gc_bin {gc_bin} --pwm_threshold {pwm_threshold}
 //        """.format(PIPELINE_PATH=PIPELINE_PATH, SCRIPTS_DIR=SCRIPTS_DIR, fasta=fasta, peaks=peaks, motifs=motifs, output_file=output_file, gc_bin=gc_bin, pwm_threshold=pwm_threshold)
 //
+
+	when:
+		inMergedPeaksMap['fasta'] != null && inMergedPeaksMap['motifs'] != null
+		
 	script:
 	"""
-	xxx
+	source ${pipeline_path}/load_python_env_reqs.sh
+	source ${script_dir}/python_env/bin/activate
+	
+	gc_bin_padded=`echo ${inMergedPeaksMap['gc_bin']} | awk '{printf("%02d",\$1+1)}'`
+	outGcBinned="${inMergedPeaksMap['sample']}-gc_\${gc_bin_padded}-peak_calls.bb"
+	
+	python ${script_dir}/call_peak_motifs.py ${inMergedPeaksMap['fasta']} ${inMergedPeaks} ${inMergedPeaksMap['motifs']} \${outGcBinned} --gc_bin ${inMergedPeaksMap['gc_bin']} --pwm_threshold ${task.ext.pwm_threshold}
 	"""
 }
-*/
-
 
 
 /*
+** ================================================================================
 ** Make motif matrix
-**
+** ================================================================================
+*/
+
+/*
+** Input files.
+**   ajh var                 ajh filename           nf channel
+**   peak_motif_files        'gc_binned.%s.peak_calls.bb'  ${inMergedPeaksMap['sample']}-gc_\${gc_bin_padded}-peak_calls.bb    (as string of space-separated filenames)
+**   fasta (GENOME_FILES)
+**   merged_peaks            'merged_peaks.bed'     *-merged_peaks.bed
+**   motifs (GENOME_FILES)
+** Output files.
+**   peak_tf_matrix          'peak_motif_matrix.mtx.gz'  *-peak_motif_matrix.mtx.gz
+*/
+
+callMotifsOutChannelPeakCalls
+	.toList()
+	.flatMap { makeMotifMatrixChannelSetupPeakCalls( it, sampleSortedNames, sampleGenomeMap ) }
+	.set { makeMotifMatrixInChannelPeakCalls }
+	
+mergePeaksOutChannelCopy07
+	.toList()
+	.flatMap { makeMotifMatrixChannelSetupMergedPeaks( it, sampleSortedNames, sampleGenomeMap ) }
+	.set { makeMotifMatrixInChannelMergedPeaks }
+	
 process makeMotifMatrixProcess {
 	cache 'lenient'
     errorStrategy onError
-	penv 'serial'
-//	cpus motifMatrix.max_cores
-//	memory "${motifMatrix.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "motif_matrices" ) }, pattern: "*-peak_motif_matrix.*", mode: 'copy'
 
 	input:
-	xxx
+		tuple file( inPeakCalls ), inPeakCallsMap from makeMotifMatrixInChannelPeakCalls
+		tuple file( inMergedPeaks ), inMergedPeaksMap from makeMotifMatrixInChannelMergedPeaks
 
 	output:
-	xxx
+	file( "*-peak_motif_matrix.*" ) into makeMotifMatrixOutChannel
 
 // Note: this appears in a conditional block ' if run_motif_calling:' see above
 //        pipeline.add_job(MakeMotifMatrix(motif_calling_outputs,
@@ -1604,6 +1755,9 @@ process makeMotifMatrixProcess {
 //                            peak_tf_matrix))
 //
 //
+// 
+// MOTIF_MATRICES_PATH = os.path.join(args.outdir, 'motif_matrices')
+// peak_tf_matrix = os.path.join(MOTIF_MATRICES_PATH, 'peak_motif_matrix.mtx.gz')
 //class MakeMotifMatrix:
 //    def __init__(self, peak_motif_files, fasta, peaks, motifs, peak_tf_matrix):
 //        self.inputs = peak_motif_files + [fasta, peaks, motifs]
@@ -1628,32 +1782,96 @@ process makeMotifMatrixProcess {
 //        --peak_tf_matrix {peak_tf_matrix}
 //        """)
 
+	when:
+		inPeakCallsMap['fasta'] != null && inPeakCallsMap['motifs'] != null
+
 	script:
 	"""
-	xxx
+	source ${pipeline_path}/load_python_env_reqs.sh
+	source ${script_dir}/python_env/bin/activate
+	
+	outPeakTfMatrix="${inPeakCallsMap['sample']}-peak_motif_matrix.mtx.gz"
+	
+	python ${script_dir}/generate_motif_matrix.py \
+	--peak_motif_files ${inPeakCalls} \
+	--fasta ${inPeakCallsMap['fasta']} \
+	--peaks ${inMergedPeaks} \
+	--motifs ${inPeakCallsMap['motifs']} \
+	--peak_tf_matrix \${outPeakTfMatrix}
 	"""
 }
-*/
 
 
 /*
+** ================================================================================
 ** Make reduced dimension matrix (optional).
+** ================================================================================
+*/
+
+/*
+** Input files.
+**   ajh var                   ajh filename           nf channel
+**   peak_matrices             "*-peak_matrix.mtx.gz"
+**   promoter_matrices         "*-promoter_matrix.mtx.gz"
+** Output files.
+**   (tfidf_matrix)            peak_motif_matrix.columns.txt  peak_motif_matrix.mtx.gz  peak_motif_matrix.rows.txt
+**   (svd_coords)              '%s.svd_coords.txt'           replace with pca_coords.txt
+**   (umap_coords)             '%s.umap_coords.txt'
+**   (tsne_coords)             '%s.tsne_coords.txt'
+**   (umap_plot)                                             <sample>.umap_plot.pdf
+**   (monocle3 object)  '%s.monocle3_cds.rds'
+** Notes:
+**   o  the reduce_dimensions.R script exits without error when
+**      the filtered peak/promoter matrices have no cells. In this
+**      case, the script does not create output files. In order for
+**      Nextflow to continue despite such errors, set process
+**      directive
 **
+**         "errorStrategy 'ignore'"
+*/
+
+makePeakMatrixOutChannel
+	.toList()
+	.flatMap { makeReducedDimensionMatrixChannelSetupPeakMatrix( it, sampleSortedNames, sampleGenomeMap ) }
+	.set { makeReducedDimensionMatrixInChannelPeakMatrix }
+	
+makePromoterMatrixOutChannel
+	.toList()
+	.flatMap { makeReducedDimensionMatrixChannelSetupPromoterMatrix( it, sampleSortedNames, sampleGenomeMap ) }
+	.set { makeReducedDimensionMatrixInChannelPromoterMatrix }
+
 process makeReducedDimensionMatrixProcess {
 	cache 'lenient'
-    errorStrategy onError
-	penv 'serial'
-//	cpus reducedDimensionMatrix.max_cores
-//	memory "${reducedDimensionMatrix.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
+    errorStrategy 'ignore'
+
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-pca_coords.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_coords.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-tsne_coords.txt", mode: 'copy'
+//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-tfidf_matrix.*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-monocle3_cds.rds", mode: 'copy'
 
 	input:
-	xxx
+	tuple file( "*" ), inPeakMatrixMap from makeReducedDimensionMatrixInChannelPeakMatrix
+	tuple file( "*" ), inPromoterMatrixMap from makeReducedDimensionMatrixInChannelPromoterMatrix
 
 	output:
-	xxx
+	file("*-pca_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
+	file("*-umap_coords.txt") into makeReducedDimensionMatrixOutChannelUmapCoords
+	file("*-tsne_coords.txt") into makeReducedDimensionMatrixOutChannelTsndCoords
+//	file("*-tfidf_matrix.*") into makeReducedDimensionMatrixOutChannelTfidfMatrix
+	file("*-umap_plot.*") into makeReducedDimensionMatrixOutChannelUmapPlot
+	file("*-monocle3_cds.rds") into makeReducedDimensionMatrixOutChannelMonocle3Cds
 
+//  MOTIF_MATRICES_PATH = os.path.join(args.outdir, 'motif_matrices'
+//    promoter_matrices = [os.path.join(MAKE_MATRICES_PATH, '%s.promoter_matrix.mtx.gz') % x for x in all_samples]
+//    topic_models = [os.path.join(TOPIC_MODELS_PATH, '%s.topic_model.rds') % x for x in all_samples]
+//
+//    svd_coords = [os.path.join(REDUCE_DIMENSION_PATH, '%s.svd_coords.txt' % x) for x in all_samples]
+//    umap_coords = [os.path.join(REDUCE_DIMENSION_PATH, '%s.umap_coords.txt' % x) for x in all_samples]
+//    tsne_coords = [os.path.join(REDUCE_DIMENSION_PATH, '%s.tsne_coords.txt' % x) for x in all_samples]
+//    seurat_objects = [os.path.join(REDUCE_DIMENSION_PATH, '%s.seurat_object.rds' % x) for x in all_samples]
+//    tfidf_matrices = [os.path.join(REDUCE_DIMENSION_PATH, '%s.tfidf_matrix.mtx.gz' % x) for x in all_samples]
 //    if not args.no_secondary:
 //        for i,sample in enumerate(all_samples):
 //            # REDUCE DIMENSION WITH LSI
@@ -1698,68 +1916,38 @@ process makeReducedDimensionMatrixProcess {
 //        if include_svd_1:
 //            self.command = self.command + ' --include_svd_1'
 
-
+//	when:
+	
 	script:
 	"""
-	xxx
+	inPeakMatrix="${inPeakMatrixMap['sample']}-peak_matrix.mtx.gz"
+	inPromoterMatrix="${inPromoterMatrixMap['sample']}-promoter_matrix.mtx.gz"
+	outPcaCoords="${inPeakMatrixMap['sample']}-pca_coords.txt"
+	outUmapCoords="${inPeakMatrixMap['sample']}-umap_coords.txt"
+	outTsneCoords="${inPeakMatrixMap['sample']}-tsne_coords.txt"
+	outTfidfMatrix="${inPeakMatrixMap['sample']}-tfidf_matrix.mtx.gz"
+	outUmapPlot="${inPeakMatrixMap['sample']}-umap_plot.pdf"
+	outMonocle3Cds="${inPeakMatrixMap['sample']}-monocle3_cds.rds"
+	
+	svdDimensions=$task.ext.svd_dimensions
+	removeTopNtile=$task.ext.remove_top_ntile
+	sitesPerCellThreshold=$task.ext.sites_per_cell_threshold
+	
+	Rscript ${script_dir}/reduce_dimensions.R \
+	\${inPeakMatrix} \
+	\${inPromoterMatrix} \
+	--pca_coords \${outPcaCoords} \
+	--umap_coords \${outUmapCoords} \
+	--tsne_coords \${outTsneCoords} \
+	--tfidf_matrix \${outTfidfMatrix} \
+	--umap_plot \${outUmapPlot} \
+	--monocle3_cds \${outMonocle3Cds} \
+	--svd_dimensions \${svdDimensions} \
+	--sites_per_cell_threshold \${sitesPerCellThreshold} \
+	--remove_top_ntile \${removeTopNtile} \
+	--fast_tsne_path ${script_dir}/FIt-SNE/bin/fast_tsne
 	"""
 }
-*/
-
-
-/*
-** Make cis topic models (optional).
-**
-process makeCisTopicModelsProcess {
-	cache 'lenient'
-    errorStrategy onError
-	penv 'serial'
-//	cpus cisTopicModels.max_cores
-//	memory "${cisTopicModels.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "xxx" ) }, pattern: "xxx", mode: 'copy'
-
-	input:
-	xxx
-
-	output:
-	xxx
-
-
-//    if not args.no_secondary:
-//        for i,sample in enumerate(all_samples):
-//            # REDUCE DIMENSION WITH LSI
-//            pipeline.add_job(ReduceDimension(peak_matrices[i],
-//                            promoter_matrices[i],
-//                            svd_coords[i],
-//                            umap_coords[i],
-//                            tsne_coords[i],
-//                            tfidf_matrices[i],
-//                            seurat_objects[i]))
-//
-//            # CISTOPIC MODELS IF REQUESTED (TIME CONSUMING)
-//            if args.topic_models:
-//                pipeline.add_job(CisTopicModels(peak_matrices[i], topic_models[i], args.topics))
-//
-//class CisTopicModels:
-//    def __init__(self, matrix, topic_model, topics):
-//        self.memory = '40G'
-//        self.inputs = [matrix]
-//        self.outputs = [topic_model]
-//
-//        self.command = """
-//        Rscript {SCRIPTS_DIR}/generate_cistopic_model.R {matrix} {topic_model} \
-//        --topics {topics} \
-//        --site_percent_min 0.01 \
-//        --min_cell_nonzero 100
-//        """.format(SCRIPTS_DIR=SCRIPTS_DIR, matrix=matrix, topic_model=topic_model, topics=' '.join([str(topic) for topic in topics]))
-
-	script:
-	"""
-	xxx
-	"""
-}
-*/
 
 
 /*
@@ -1768,10 +1956,6 @@ process makeCisTopicModelsProcess {
 process template {
 	cache 'lenient'
     errorStrategy onError
-	penv 'serial'
-	cpus template.max_cores
-	memory "${template.memory} GB"
-	module 'openjdk/latest:modules:modules-init:modules-gs:xxx'
 
 	input:
 	xxx
@@ -1793,6 +1977,11 @@ process template {
 ** Start of Groovy support functions.
 ** ================================================================================
 */
+
+
+def printErr( errString ) {
+	System.err.println( errString )
+}
 
 
 /*
@@ -1914,36 +2103,108 @@ def reportRunParams( params ) {
 
 
 /*
-** Check directories for existence and/or accessibility.
+** Function: writeChannelEntries
+** Purpose: diagnostic
+** Use: place it within a channel transformation 'chain' using the .map operator.
+** For example,
+**
+**     runAlignOutChannel
+**	  .toList()
+**	  .map { writeChannelEntries( it, 'runAlignOutChannel start' ) }
+**	  .flatMap { mergeBamChannelSetup( it, sampleLaneMap ) }
+**	  .map { writeChannelEntries( it, 'runAlignOutChannel finish' ) }
+**    .set { mergeBamsInChannel }
 */
-def checkDirectories( params ) {
-	/*
-	** Check that demux_dir exists.
-	*/
-	def dirName = demux_dir
-	def dirHandle = new File( dirName )
-	assert dirHandle.exists() : "unable to find demultiplexed fastq directory $dirName"
-	assert dirHandle.canRead() : "unable to read demultiplexed fastq directory $dirName"
+def writeChannelEntries( inEntry, label ) {
+	println( "Channel entries: $label: $inEntry" )
+	println()
+	return( inEntry )
+}
 
-	/*
-	** Check that either the analyze_dir exists or we can create it.
-	*/
-	dirName = analyze_dir
-	dirHandle = new File( dirName )
+
+/*
+** Make directory, if it does not exist.
+*/
+def makeDirectory( directoryName ) {
+	dirHandle = new File( directoryName )
 	if( !dirHandle.exists() ) {
-		assert dirHandle.mkdirs() : "unable to create analyze output directory $dirName"
+		if( !dirHandle.mkdirs() ) {
+			printErr( "Error: unable to create directory $directoryName" )
+			System.exit( -1 )
+		}
 	}
 }
 
 
+/*
+** Check that directory exists and can be read.
+*/
+def checkDirectory( directoryName ) {
+	def dirHandle = new File( directoryName )
+	if( !dirHandle.exists() ) {
+		printErr( "Error: unable to find directory $directoryName" )
+		return( false )
+	}
+	if( !dirHandle.canRead() ) {
+		printErr( "Error: unable to read directory $directoryName" )
+		return( false )
+	}
+	return( true )
+}
+
+
+/*
+** Check that file exists and can be read.
+*/
+def checkFile( fileName ) {
+	def fileHandle = new File( fileName )
+	if( !fileHandle.exists() ) {
+		printErr( "Error: unable to find file $fileName" )
+		return( false )
+	}
+	if( !fileHandle.canRead() ) {
+		printErr( "Error: unable to read file $fileName" )
+		return( false )
+	}
+	
+	return( true )
+}
+
+
+/*
+** Check directories for existence and/or accessibility.
+*/
+def checkDirectories( params ) {
+	def dirName
+	
+	/*
+	** Check that demux_dir exists.
+	*/
+	dirName = demux_dir
+	if( !checkDirectory( dirName ) ) {
+		System.exit( -1 )
+	}
+	
+	/*
+	** Check that either the analyze_dir exists or we can create it.
+	*/
+	dirName = analyze_dir
+	makeDirectory( dirName )
+}
+
+
+/*
+** Make archive copies of various files and store in reports sub-directory.
+*/
 def archiveRunFiles( params, timeNow )
 {
-  file_suffix = timeNow.format( 'yyyy-MM-dd_HH-mm-ss' )
-  def i = 1
-  Path dst
-  workflow.configFiles.each { aFile ->
+	makeDirectory( "${analyze_dir}/reports" )
+	file_suffix = timeNow.format( 'yyyy-MM-dd_HH-mm-ss' )
+	def i = 1
+	Path dst
+	workflow.configFiles.each { aFile ->
     src = aFile
-    dst = Paths.get( "${aFile.getName()}.${file_suffix}.${i}" )
+    dst = Paths.get( "${analyze_dir}/reports/${aFile.getName()}.${file_suffix}.${i}" )
     Files.copy( src, dst )
     i += 1
   }
@@ -2016,12 +2277,24 @@ def checkFastqs( params, sampleLaneMap ) {
 		lanes.each { aLane ->
 			fileName = dirName + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
 			fileHandle = new File( fileName )
-			assert fileHandle.exists() : "unable to find fastq file ${fileName}"
-			assert fileHandle.canRead() : "unable to find fastq file ${fileName}"
+			if( !fileHandle.exists() ) {
+				printErr( "Error: unable to find fastq file ${fileName}" )
+				System.exit( -1 )
+			}
+			if( !fileHandle.canRead() ) {
+				printErr( "Error: unable to read fastq file ${fileName}" )
+				System.exit( -1 )
+			}
 			fileName = dirName + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
 			fileHandle = new File( fileName )
-			assert fileHandle.exists() : "unable to find fastq file ${fileName}"
-			assert fileHandle.canRead() : "unable to find fastq file ${fileName}"
+			if( !fileHandle.exists() ) {
+				printErr( "Error: unable to find fastq file ${fileName}" )
+				System.exit( -1 )
+			}
+			if( !fileHandle.canRead() ) {
+				printErr( "Error: unable to read fastq file ${fileName}" )
+				System.exit( -1 )
+			}
 		}
 	}
 }
@@ -2058,8 +2331,14 @@ def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeN
 def readGenomesJson( params, argsJson ) {
 	def pathFil = params.genomes_json
 	def fileHandle = new File( pathFil )
-	assert fileHandle.exists() : "unable to find genomes json file \'${pathFil}\'"
-	assert fileHandle.canRead() : "unable to find genomes json file \'${pathFil}\'"
+	if( !fileHandle.exists() ) {
+		printErr( "Error: unable to find genomes json file \'${pathFil}\'" )
+		System.exit( -1 )
+	}
+	if( !fileHandle.canRead() ) {
+		printErr( "Error: unable to read genomes json file \'${pathFil}\'" )
+		System.exit( -1 )
+	}
 	def jsonSlurper  = new JsonSlurper()
 	def genomesJson = jsonSlurper.parse( fileHandle )
 	def namGenomesJson = genomesJson.keySet()
@@ -2067,7 +2346,10 @@ def readGenomesJson( params, argsJson ) {
 	runs.each { aRun ->
 		def argsGenomes = argsJson[aRun]['genomes'].values()
 		argsGenomes.each { aGenome ->
-			assert namGenomesJson.contains( aGenome ) : "genome \'${aGenome}\' not in our genomes json file"
+			if( !fileHandle.exists() ) {
+				printErr( "Error: unable to find genomes json file \'${pathFil}\'" )
+				System.exit( -1 )
+			}
 		}
 	}
 	return( genomesJson )
@@ -2100,16 +2382,6 @@ def getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson ) {
 		}
 	}
 	
-	/*
-	** diagnostics
-	println "getSampleGenomeMap map"
-	sampleGenomeMap.keySet().each { aSample ->
-		println "  sample: ${aSample}"
-		println "  genome_index: ${sampleGenomeMap[aSample]['bowtie_index']}"
-		println "  tss: ${sampleGenomeMap[aSample]['tss']}"
-	}
-	*/
-	
 	return( sampleGenomeMap )
 }
 
@@ -2136,21 +2408,11 @@ def sortTssBedChannelSetup( sampleSortedNames, sampleGenomeMap, genomesJson ) {
 	   def hasTss = aGenomeJsonMap.containsKey( 'tss' )
         if( hasTss ) {
             inBed = aGenomeJsonMap['tss']
-            outBed = aSample + '-' + aGenomeJsonMap['name'] + '.tss_file.sorted.bed.gz'
         } else {
             inBed = ''
-            outBed = ''
         }
-        tssBedMaps.add( [ 'hasTss': hasTss, 'inBed': inBed, 'outBed': outBed ] )	   
+        tssBedMaps.add( [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'hasTss': hasTss, 'inBed': inBed ] )	   
 	}
-	
-	/*
-	** diagnostic
-	println "sortTssBedChannelSetup entries"
-	tssBedMaps.each { aSet ->
-		println "  hasTss: ${aSet['hasTss']}  inBed: ${aSet['inBed']}  outBed: ${aSet['outBed']}"
-	}
-    */
 	
 	return( tssBedMaps )
 }
@@ -2168,24 +2430,12 @@ def sortChromosomeSizeChannelSetup( sampleSortedNames, sampleGenomeMap, genomesJ
         def hasChromosomeSizes = aGenomeJsonMap.containsKey( 'chromosome_sizes' )
         if( hasChromosomeSizes ) {
             inTxt = aGenomeJsonMap['chromosome_sizes']
-            outTxt = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
         } else {
             inTxt = ''
-            outTxt = ''
         }
-        chromosomeSizeMaps.add( [ 'hasChromosomeSizes': hasChromosomeSizes, 'inTxt': inTxt, 'outTxt': outTxt ] )
+        chromosomeSizeMaps.add( [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'hasChromosomeSizes': hasChromosomeSizes, 'inTxt': inTxt ] )
     }
 
-	/*
-	** diagnostics
-		println "sortChromosomeSizeChannelSetup entries"
-        chromosomeSizeMaps.each { aSet ->
-		println "  hasChromosomeSizes: ${aSet['hasChromosomeSizes']}"
-		println "  inTxt: ${aSet['inTxt']}"
-		println "  outTxt: ${aSet['outTxt']}"
-	}
-    */
-	
 	return( chromosomeSizeMaps )
 }
 
@@ -2204,7 +2454,10 @@ def checkArgsSamples( params, sampleLaneJsonMap ) {
 		def samplesParams = params.samples
 		def samplesJson = sampleLaneJsonMap.keySet()
 		samplesParams.each { aSample ->
-			assert samplesJson.contains( aSample ) : "sample \'${aSample}\' in params.samples is not in the args.json file"
+			if( !samplesJson.contains( aSample ) ) {
+				printErr( "Error: sample \'${aSample}\' in params.samples is not in the args.json file" )
+				System.exit( -1 )
+			}
 			sampleLaneMap[aSample].addAll( sampleLaneJsonMap[aSample] )
 		}
 		samplesParams.each { aSample ->
@@ -2264,18 +2517,9 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 			def genome       = argsJson[theRun]['genomes'][aSample]
 			def genome_index = genomesJson[genome]['bowtie_index']
 			def whitelist    = genomesJson[genome]['whitelist_regions']
-			def bamfile      = String.format( '%s-%s.bam', aSample, aLane )
-			alignMaps.add( [ 'fastq1':fastq1, 'fastq2':fastq2, 'genome_index':genome_index, 'whitelist':whitelist, 'seed': seed, 'bamfile':bamfile ] )
+			alignMaps.add( [ 'sample': aSample, 'lane': aLane, 'fastq1':fastq1, 'fastq2':fastq2, 'genome_index':genome_index, 'whitelist':whitelist, 'seed': seed ] )
 		}
 	}
-	
-	/*
-	** diagnostic
-	println "runAlignChannelSetup list"
-	alignMaps.each { aMap ->
-	  println "fastq1: ${aMap['fastq1']}  fastq2: ${aMap['fastq2']}  genome_index: ${aMap['genome_index']}  whitelist: ${aMap['whitelist']}  bamfile: ${aMap['bamfile']}"
-	}
-	*/
 	
 	return( alignMaps )
 }
@@ -2315,7 +2559,10 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 		filesFound.add( aPath.getFileName().toString() )
 	}
 	filesExpected.each { aFile ->
-		assert aFile in filesFound : "missing expected  file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected  file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
 	}
 
 	/*
@@ -2336,21 +2583,10 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 	*/
 	def outTuples = []
 	samples.each { aSample ->
-		def outBam = aSample + '-merged.bam'
-		def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample, 'outBam': outBam ] )
+		def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample ] )
 		outTuples.add( tuple )
 	}
 	
-	/*
-	** diagnostic
-	println "mergeBamChannelSetup list"
-	outTuples.each { aTuple ->
-		println "  outBam: ${aTuple[0]}"
-		println "  inBams: ${aTuple[1]}"
-
-	}
-	*/
-		
 	return( outTuples )
 }
 
@@ -2382,7 +2618,10 @@ def getUniqueFragmentsChannelSetupBam( inPaths, sampleSortedNames ) {
         filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+    	if( !( aFile in filesFound ) ) {
+    		printErr( "Error: missing expected file \'${aFile}\' in channel" )
+    		System.exit( -1 )
+    	}
     }
 
     /*
@@ -2419,28 +2658,10 @@ def getUniqueFragmentsChannelSetupBam( inPaths, sampleSortedNames ) {
     sampleSortedNames.each { aSample ->
         def inBam = pathMap[aSample]['bam']
         def inBai = pathMap[aSample]['bai']
-        def fragments_file = aSample + '-fragments.txt.gz'
-        def transposition_sites_file = aSample + '-transposition_sites.bed.gz'
-        def insert_sizes_file = aSample + '-insert_sizes.txt'
-        def duplicate_report = aSample + '-duplicate_report.txt'
-        def tuple = new Tuple( inBam, inBai, [ 'sample':aSample, 'fragments_file': fragments_file, 'transposition_sites_file': transposition_sites_file, 'insert_sizes_file': insert_sizes_file, 'duplicate_report': duplicate_report ] )
+        def tuple = new Tuple( inBam, inBai, [ 'sample':aSample ] )
         outTuples.add( tuple )
     }
         
-	/*
-	** diagnostics
-
-	println "getUniqueFragmentsChannelSetupBam"
-	outTuples.each { tuple ->
-		println "  inBam: ${tuple[0]}"
-        println "  inBai: ${tuple[1]}"
-		println "  fragments_file: ${tuple[2]['fragments_file']}"
-		println "  transposition_sites_file: ${tuple[2]['transposition_sites_file']}"
-		println "  insert_sizes_file: ${tuple[2]['insert_sizes_file']}"
-		println "  duplicate_report: ${tuple[2]['duplicate_report']}"
-	}
-    */
-	
 	return( outTuples )
 }
 
@@ -2461,28 +2682,19 @@ def getUniqueFragmentsChannelSetupChromosomeSizes( inPaths, sampleSortedNames, s
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
-    }
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
+	}
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def aGenomeJsonMap = sampleGenomeMap[aSample]
         def inGenomicIntervals = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
-        def outBedGraphFile = aSample + '-read_alignments.bedgraph'
-        def outBigWigFile = aSample + '-read_alignments.bw'
-        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample, 'outBedGraphFile': outBedGraphFile, 'outBigWigFile': outBigWigFile ] )
+        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeWindowedGenomeIntervalsChannelSetup"
-    outTuples.each { aTuple ->
-        println "sample: ${aTuple[1]['sample']}"
-        println "genomeSizes: ${aTuple[1]['genomeSizes']}"
-        println "outBigWigFile file: ${aTuple[1]['outBigWigFile']}"
-    }
-    */
 
     return( outTuples )
 }
@@ -2516,7 +2728,10 @@ def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 		filesFound.add( aPath.getFileName().toString() )
 	}
 	filesExpected.each { aFile ->
-		assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
 	}
 
 	/*
@@ -2551,39 +2766,10 @@ def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 	def callPeaksTuples = []
 	samples.each { aSample ->
 		def macs_genome = sampleGenomeMap[aSample]['macs_genome']
-		def out_dir = 'call_peaks'
-		def macs_narrowpeak_file = "${out_dir}/${aSample}_peaks.narrowPeak.gz"
-		def output_narrowpeak_file = "${aSample}-peaks.narrowPeak.gz"
-		def macs_xls_file="${out_dir}/${aSample}_peaks.xls"
-		def output_xls_file="${aSample}-peaks.xls"
-		def macs_summits_file="${out_dir}/${aSample}_summits.bed"
-		def output_summits_file="${aSample}-summits.bed"
-		def tuple = new Tuple( 
-			pathMap[aSample]['bed'],
-			pathMap[aSample]['tbi'],
-			[ 'sample_name': aSample,
-			  'macs_genome': macs_genome,
-			  'out_dir': out_dir,
-			  'macs_narrowpeak_file': macs_narrowpeak_file,
-			  'output_narrowpeak_file': output_narrowpeak_file,
-			  'macs_xls_file': macs_xls_file,
-			  'output_xls_file': output_xls_file,
-			  'macs_summits_file': macs_summits_file,
-			  'output_summits_file': output_summits_file
-			] )
+		def tuple = new Tuple( pathMap[aSample]['bed'], pathMap[aSample]['tbi'], [ 'sample': aSample, 'macs_genome': macs_genome ] )
 		callPeaksTuples.add( tuple )
 	}
 	
-	/*
-	** diagnostics
-	println "callPeaksChannelSetup tuples:"
-	callPeaksTuples.each { aTuple ->
-		println "  inBed: ${aTuple[0]}"
-		println "  inTbi: ${aTuple[1]}"
-		println "  sample name: ${aTuple[2]['sample_name']}"
-	}
-	*/
-			
 	return( callPeaksTuples )
 }
 
@@ -2610,27 +2796,18 @@ def makePeakFileChannelSetup( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
 	def filesFound = fileMap.keySet()
 	filesExpected.each { aFile ->
-		assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
 	}
 	
 	def outTuples = []
 	sampleSortedNames.each { aSample ->
 	   def inBed = aSample + '-peaks.narrowPeak.gz'
-	   def outBed = aSample + '-merged_peaks.bed'
-	   def tuple = new Tuple( fileMap[inBed], [ 'sample': aSample, 'outBed': outBed ] )
+	   def tuple = new Tuple( fileMap[inBed], [ 'sample': aSample ] )
 	   outTuples.add( tuple )
 	}
-
-	/*
-	** diagnostics
-	println "makePeakFileChannelSetup file list:"
-	outTuples.each { aTuple ->
-		def aFile = aTuple[0].getFileName().toString()
-        println "  inFile: ${aFile}"
-		println "  inPath: ${aTuple[0]}"
-		println "  outFile: ${aTuple[1]['outBed']}"
-	}
-    */
 
 	return( outTuples )
 }
@@ -2658,41 +2835,20 @@ def makeWindowedGenomeIntervalsChannelSetup( inPaths, sampleSortedNames, sampleG
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def aGenomeJsonMap = sampleGenomeMap[aSample]
-        def outGenomicWindows = aSample + '-genomic_windows.bed'
         def inGenomicIntervals = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
-        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample, 'outGenomicWindows': outGenomicWindows ] )
+        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
 
-/*
-** Vestigial bge
-    def outMaps = []
-    sampleSortedNames.each { aSample ->
-        def genomicWindows = aSample + '-genomic_windows.bed'
-        def aMap = [:]
-        aMap['sample'] = aSample
-        aMap['genomicWindows'] = genomicWindows
-        outMaps.add( aMap )
-    }
- */
-   
-    /*
-    ** diagnostics
-
-    println "makeWindowedGenomeIntervalsChannelSetup"
-    outTuples.each { aTuple ->
-        println "sample: ${aTuple[1]['sample']}"
-        println "genomeSizes: ${aTuple[1]['genomeSizes']}"
-        println "genomicWindows: ${aTuple[1]['genomicWindows']}"
-    }
-    */
-  
     return( outTuples )
 }
 
@@ -2718,7 +2874,10 @@ def makePromoterSumIntervalsChannelSetup( inPaths, sampleSortedNames, sampleGeno
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
     }
 
     def hasGeneScoreBed
@@ -2733,32 +2892,19 @@ def makePromoterSumIntervalsChannelSetup( inPaths, sampleSortedNames, sampleGeno
             inBedPath = 'NA'
             inBedFile = sampleGenomeMap[aSample]['gene_score_bed']
             tssFile = 'NA'
-            outBed = aSample + '-gene_regions.bed.gz'
         } else {
             hasGeneScoreBed = 0
             inBedName = aSample + '-merged_peaks.bed'
             inBedPath = fileMap[inBedName]
             inBedFile = 'NA'
             tssFile = sampleGenomeMap[aSample]['tss']
-            outBed = aSample + '-gene_regions.bed.gz'            
         }
         def tuple = new Tuple( inBedPath, [ 'sample': aSample,
                                             'hasGeneScoreBed': hasGeneScoreBed,
                                             'tssFile': tssFile,
-                                            'inBedFile': inBedFile,
-                                            'outBed': outBed ] )
+                                            'inBedFile': inBedFile ] )
         outTuples.add( tuple )
     }
-    
-    /*
-    ** diagnostics
-
-    println 'makePromoterSumIntervalsChannelSetup'
-    outTuples.each { aTuple ->
-        println "inPath: ${aTuple[0]}"
-        println "sample: ${aTuple[1]['sample']}"
-    }
-    */
     
     return( outTuples )
 }
@@ -2797,8 +2943,11 @@ def makeMergedPeakRegionCountsChannelSetupTranspositionSites( inPaths, sampleSor
         filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
-    }
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
+   }
 
     def pathMap = [:]
     sampleSortedNames.each { aSample ->
@@ -2822,15 +2971,6 @@ def makeMergedPeakRegionCountsChannelSetupTranspositionSites( inPaths, sampleSor
         outTuples.add( tuple )
     }
 
-    /*
-    ** diagnostics
-    println "makeMergedPeakRegionCountsChannelSetupTranspositionSites"
-    outTuples.each { aTuple ->
-        println "inBed: ${aTuple[0]}"
-        println "inTbi: ${aTuple[1]}"
-    }
-    */
-    
     return( outTuples )
 }
 
@@ -2854,29 +2994,18 @@ def makeMergedPeakRegionCountsChannelSetupMergedPeaks( inPaths, sampleSortedName
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
-        def peakCountsOut = aSample + '-peak_counts.txt'
         def inMergedPeaks = aSample + '-merged_peaks.bed'
-        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample, 'peakCountsOut': peakCountsOut ] )
+        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-    
-    /*
-    ** diagnostics
-    println "makeMergedPeakRegionCountsChannelSetupMergedPeaks merged peak files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
     
     return( outTuples )
 }
@@ -2898,7 +3027,10 @@ def makeMergedPeakRegionCountsChannelSetupChromosomeSizes( inPaths, sampleSorted
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}  
     }
 
     def outTuples = []
@@ -2907,17 +3039,6 @@ def makeMergedPeakRegionCountsChannelSetupChromosomeSizes( inPaths, sampleSorted
         def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeMergedPeakRegionCountsChannelSetupChromosomeSizes chromosome sizes files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    */
 
     return( outTuples )
 }
@@ -2956,7 +3077,10 @@ def makeTssRegionCountsChannelSetupTranspositionSites( inPaths, sampleSortedName
         filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}   
     }
 
     def pathMap = [:]
@@ -2981,15 +3105,6 @@ def makeTssRegionCountsChannelSetupTranspositionSites( inPaths, sampleSortedName
         outTuples.add( tuple )
     }
 
-    /*
-    ** diagnostics
-    println "makeTssRegionCountsChannelSetupTranspositionSites"
-    outTuples.each { aTuple ->
-        println "inBed: ${aTuple[0]}"
-        println "inTbi: ${aTuple[1]}"
-    }
-    */
-    
     return( outTuples )
 }
 
@@ -3013,29 +3128,18 @@ def makeTssRegionCountsChannelSetupTss( inPaths, sampleSortedNames, sampleGenome
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
-        def tssCountsOut = aSample + '-tss_counts.txt'
         def inBedName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.bed.gz'
-        def tuple = new Tuple( fileMap[inBedName], [ 'sample': aSample, 'tssCountsOut': tssCountsOut ] )
+        def tuple = new Tuple( fileMap[inBedName], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-    
-    /*
-    ** diagnostics
-    println "makeTssRegionCountsChannelSetupTss TSS region files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
     
     return( outTuples )
 }
@@ -3057,8 +3161,11 @@ def makeTssRegionCountsChannelSetupChromosomeSizes( inPaths, sampleSortedNames, 
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
-    }
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
+   }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
@@ -3066,18 +3173,6 @@ def makeTssRegionCountsChannelSetupChromosomeSizes( inPaths, sampleSortedNames, 
         def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeTssRegionCountsChannelSetupChromosomeSizes chromosome sizes files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    }
-    */
 
     return( outTuples )
 }
@@ -3105,27 +3200,18 @@ def makeCountReportsChannelSetupDuplicateReport( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
     
     def outTuples = []
     sampleSortedNames.each { aSample ->
        def inTxt = aSample + '-duplicate_report.txt'
-       def outCountReport = aSample + '-count_report.txt'
-       def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample, 'outCountReport': outCountReport ] )
+       def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
        outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeCountReportsChannelSetupDuplicateReport file list:"
-    outTuples.each { aTuple ->
-        def aFile = aTuple[0].getFileName().toString()
-        println "  inFile: ${aFile}"
-        println "  inPath: ${aTuple[0]}"
-        println "  outFile: ${aTuple[1]['outBed']}"
-    }
-    */
 
     return( outTuples )
 }
@@ -3147,7 +3233,10 @@ def makeCountReportsChannelSetupMergedPeakRegionCounts( inPaths, sampleSortedNam
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}    
     }
     
     def outTuples = []
@@ -3156,17 +3245,6 @@ def makeCountReportsChannelSetupMergedPeakRegionCounts( inPaths, sampleSortedNam
        def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
        outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeCountReportsChannelSetupMergedPeakRegionCounts file list:"
-    outTuples.each { aTuple ->
-        def aFile = aTuple[0].getFileName().toString()
-        println "  inFile: ${aFile}"
-        println "  inPath: ${aTuple[0]}"
-        println "  outFile: ${aTuple[1]['outBed']}"
-    }
-    */
 
     return( outTuples )
 }
@@ -3188,7 +3266,10 @@ def makeCountReportsChannelSetupTssRegionCounts( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
     
     def outTuples = []
@@ -3197,17 +3278,6 @@ def makeCountReportsChannelSetupTssRegionCounts( inPaths, sampleSortedNames ) {
        def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
        outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeCountReportsChannelSetupTssRegionCounts file list:"
-    outTuples.each { aTuple ->
-        def aFile = aTuple[0].getFileName().toString()
-        println "  inFile: ${aFile}"
-        println "  inPath: ${aTuple[0]}"
-        println "  outFile: ${aTuple[1]['outBed']}"
-    }
-    */
 
     return( outTuples )
 }
@@ -3234,37 +3304,18 @@ def callCellsChannelSetup( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
     
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def inTxt = aSample + '-count_report.txt'
-        def outCalledCellsCounts = aSample + '-called_cells.txt'
-        def outCellWhitelist = aSample + '-called_cells_whitelist.txt'
-        def outCallCellsStats = aSample + '-called_cells_stats.json'
-        def readsThreshold = ""
-        if( params.reads_threshold != null ) {
-            readsThreshold = "--reads_threshold ${params.reads_threshold}"
-        }
-        def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample,
-                                                'readsThreshold': readsThreshold,
-                                                'outCalledCellsCounts': outCalledCellsCounts,
-                                                'outCellWhitelist': outCellWhitelist,
-                                                'outCallCellsStats': outCallCellsStats ] )
+        def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "callCellsChannelSetup file list:"
-    outTuples.each { aTuple ->
-        def aFile = aTuple[0].getFileName().toString()
-        println "  inFile: ${aFile}"
-        println "  inPath: ${aTuple[0]}"
-        println "  outoutCalledCellsCounts: ${aTuple[1]['outCalledCellsCounts']}"
-    }
-    */
 
     return( outTuples )
 }
@@ -3303,7 +3354,10 @@ def getPerBaseCoverageTssChannelSetupTranspositionSites( inPaths, sampleSortedNa
         filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def pathMap = [:]
@@ -3328,15 +3382,6 @@ def getPerBaseCoverageTssChannelSetupTranspositionSites( inPaths, sampleSortedNa
         outTuples.add( tuple )
     }
 
-    /*
-    ** diagnostics
-    println "getPerBaseCoverageTssChannelSetupTranspositionSites"
-    outTuples.each { aTuple ->
-        println "inBed: ${aTuple[0]}"
-        println "inTbi: ${aTuple[1]}"
-    }
-    */
-    
     return( outTuples )
 }
 
@@ -3360,29 +3405,18 @@ def getPerBaseCoverageTssChannelSetupTss( inPaths, sampleSortedNames, sampleGeno
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
-        def outCoverage = aSample + '-tss_region_coverage.txt.gz'
         def inBedName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.bed.gz'
-        def tuple = new Tuple( fileMap[inBedName], [ 'sample': aSample, 'outCoverage': outCoverage ] )
+        def tuple = new Tuple( fileMap[inBedName], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-    
-    /*
-    ** diagnostics
-    println "getPerBaseCoverageTssChannelSetupTss TSS region files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
     
     return( outTuples )
 }
@@ -3404,7 +3438,10 @@ def getPerBaseCoverageTssChannelSetupChromosomeSizes( inPaths, sampleSortedNames
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -3413,18 +3450,6 @@ def getPerBaseCoverageTssChannelSetupChromosomeSizes( inPaths, sampleSortedNames
         def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "getPerBaseCoverageTssChannelSetupChromosomeSizes chromosome sizes files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    }
-    */
 
     return( outTuples )
 }
@@ -3454,7 +3479,10 @@ def makePeakMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
         filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def pathMap = [:]
@@ -3479,15 +3507,6 @@ def makePeakMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
 
-    /*
-    ** diagnostics
-    println "makePeakMatrixChannelSetupTranspositionSites"
-    outTuples.each { aTuple ->
-        println "inBed: ${aTuple[0]}"
-        println "inTbi: ${aTuple[1]}"
-    }
-    */
-    
     return( outTuples )
 }
 
@@ -3504,29 +3523,19 @@ def makePeakMatrixChannelSetupMergedPeaks( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: unable to find genomes json file \'${aFile}\'" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
-        def outPeakMatrix = aSample + '-peak_matrix.mtx.gz'
         def inMergedPeaks = aSample + '-merged_peaks.bed'
-        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample, 'outPeakMatrix': outPeakMatrix ] )
+        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "makePeakMatrixChannelSetupMergedPeaks merged peak files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    }
-    */
-        
     return( outTuples )
 }
 
@@ -3543,7 +3552,10 @@ def makePeakMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -3553,19 +3565,6 @@ def makePeakMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "makePeakMatrixChannelSetupCellWhitelist cell whitelist files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -3586,7 +3585,10 @@ def makePeakMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sampl
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -3595,17 +3597,6 @@ def makePeakMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sampl
         def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makePeakMatrixChannelSetupChromosomeSizes chromosome sizes files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    */
 
     return( outTuples )
 }
@@ -3635,7 +3626,10 @@ def makeWindowMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames )
         filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def pathMap = [:]
@@ -3660,15 +3654,6 @@ def makeWindowMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames )
         outTuples.add( tuple )
     }
 
-    /*
-    ** diagnostics
-    println "makeWindowMatrixChannelSetupTranspositionSite"
-    outTuples.each { aTuple ->
-        println "inBed: ${aTuple[0]}"
-        println "inTbi: ${aTuple[1]}"
-    }
-    */
-    
     return( outTuples )
 }
 
@@ -3685,30 +3670,19 @@ def makeWindowMatrixChannelSetupWindowedGenomeIntervals( inPaths, sampleSortedNa
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
-        def outWindowMatrix = aSample + '-window_matrix.mtx.gz'
         def inGenomicIntervals = aSample + '-genomic_windows.bed'
-        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample, 'outWindowMatrix': outWindowMatrix ] )
+        def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "makeWindowMatrixChannelSetupWindowedGenomeIntervals windowed genomic intervals files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -3725,7 +3699,10 @@ def makeWindowMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -3735,19 +3712,6 @@ def makeWindowMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "makeWindowMatrixChannelSetupCellWhitelist cell whitelist files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -3768,7 +3732,10 @@ def makeWindowMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sam
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -3777,17 +3744,6 @@ def makeWindowMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, sam
         def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeWindowMatrixChannelSetupChromosomeSizes chromosome sizes files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    */
 
     return( outTuples )
 }
@@ -3817,7 +3773,10 @@ def makePromoterMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames
         filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def pathMap = [:]
@@ -3842,15 +3801,6 @@ def makePromoterMatrixChannelSetupTranspositionSites( inPaths, sampleSortedNames
         outTuples.add( tuple )
     }
 
-    /*
-    ** diagnostics
-    println "makePromoterMatrixChannelSetupTranspositionSites"
-    outTuples.each { aTuple ->
-        println "inBed: ${aTuple[0]}"
-        println "inTbi: ${aTuple[1]}"
-    }
-    */
-    
     return( outTuples )
 }
 
@@ -3867,34 +3817,23 @@ def makePromoterMatrixChannelSetupGeneRegions( inPaths, sampleSortedNames, sampl
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
-        def outPromoterMatrix = aSample + '-promoter_matrix.mtx.gz'
         def inGenomicIntervals = aSample + '-gene_regions.bed.gz'
         def inGeneBodiesGeneMap = sampleGenomeMap[aSample]['gene_bodies_gene_map']
         def inPromoterMatrixRows = aSample + '-promoter_matrix.rows.txt'
         def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample,
                                                               'inGeneBodiesGeneMap': inGeneBodiesGeneMap,
-                                                              'inPromoterMatrixRows': inPromoterMatrixRows,
-                                                              'outPromoterMatrix': outPromoterMatrix ] )
+                                                              'inPromoterMatrixRows': inPromoterMatrixRows ] )
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "makePromoterMatrixChannelSetupGeneRegions gene regions files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    }
-    */
-
     return( outTuples )
 }
 
@@ -3911,7 +3850,10 @@ def makePromoterMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -3921,19 +3863,6 @@ def makePromoterMatrixChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "makePromoterMatrixChannelSetupCellWhitelist cell whitelist files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -3954,7 +3883,10 @@ def makePromoterMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, s
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -3963,17 +3895,6 @@ def makePromoterMatrixChannelSetupChromosomeSizes( inPaths, sampleSortedNames, s
         def tuple = new Tuple( fileMap[inFileName], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makePromoterMatrixChannelSetupChromosomeSizes chromosome sizes files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    */
 
     return( outTuples )
 }
@@ -3997,40 +3918,26 @@ def summarizeCellCallsSetupCountReports( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def inCountReport = aSample + '-count_report.txt'
-        def outSummaryPlot = aSample + '-called_cells_summary.pdf'
-        def outSummaryStats = aSample + '-called_cells_summary.stats.txt'
-        def tuple = new Tuple( fileMap[inCountReport], [ 'sample': aSample,
-                                                         'outSummaryPlot': outSummaryPlot,
-                                                         'outSummaryStats': outSummaryStats ] )
+        def tuple = new Tuple( fileMap[inCountReport], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "summarizeCellCallsSetupCountReports files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
 
 def summarizeCellCallsSetupCalledCellStats( inPaths, sampleSortedNames ) {
     /*
-    ** Check for expected input pathss.
+    ** Check for expected input paths.
     */
     def filesExpected = []
     sampleSortedNames.each { aSample ->
@@ -4040,7 +3947,10 @@ def summarizeCellCallsSetupCalledCellStats( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -4050,19 +3960,6 @@ def summarizeCellCallsSetupCalledCellStats( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "summarizeCellCallsSetupCalledCellStats files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -4079,7 +3976,10 @@ def summarizeCellCallsSetupInsertSizeDistribution( inPaths, sampleSortedNames ) 
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -4089,19 +3989,6 @@ def summarizeCellCallsSetupInsertSizeDistribution( inPaths, sampleSortedNames ) 
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "summarizeCellCallsSetupInsertSizeDistribution files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -4118,7 +4005,10 @@ def summarizeCellCallsSetupNarrowPeak( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -4128,19 +4018,6 @@ def summarizeCellCallsSetupNarrowPeak( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "summarizeCellCallsSetupNarrowPeak files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -4157,7 +4034,10 @@ def summarizeCellCallsSetupMergedPeaks( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -4167,19 +4047,6 @@ def summarizeCellCallsSetupMergedPeaks( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "summarizeCellCallsSetupMergedPeaks files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -4196,7 +4063,10 @@ def summarizeCellCallsSetupPerBaseCoverageTss( inPaths, sampleSortedNames ) {
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -4206,19 +4076,6 @@ def summarizeCellCallsSetupPerBaseCoverageTss( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "summarizeCellCallsSetupPerBaseCoverage files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -4248,7 +4105,10 @@ def summarizeCellCallsSetupWindowMatrix( inPaths, sampleSortedNames ) {
         filesExpected.add( fileName )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def pathMap = [:]
@@ -4276,19 +4136,6 @@ def summarizeCellCallsSetupWindowMatrix( inPaths, sampleSortedNames ) {
         outTuples.add( tuple )
     }
     
-    /*
-    ** diagnostics
-    println "summarizeCellCallsSetupWindowMatrix files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[3]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-        
-    }
-    */
-
     return( outTuples )
 }
 
@@ -4305,15 +4152,6 @@ def summarizeCellCallsSetupTestBarnyard( sampleSortedNames, sampleGenomeMap ) {
         outMaps.add( aMap )
     }
     
-    /*
-    ** diagnostics
-    println "summarizeCellCallsSetupTestBarnyardx files"
-    outMaps.keySet().each { aMap ->
-        println "aSample: ${aMap['sample']}"
-        println "isBarnyard: ${aMap['isBarnyard']}"
-    }
-    */
-
     return( outMaps )
 }
 
@@ -4337,30 +4175,18 @@ def makeGenomeBrowserFilesChannelSetupTss( inPaths, sampleSortedNames, sampleGen
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
-    }
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
+   }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def inBedName = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.bed.gz'
-        def outBedFile = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.gb.bed'
-        def outBigBedFile = aSample + '-' + sampleGenomeMap[aSample]['name'] + '.tss_file.sorted.gb.bb'
-        def tuple = new Tuple( fileMap[inBedName], [ 'sample': aSample, 'outBedFile': outBedFile, 'outBigBedFile': outBigBedFile ] )
+        def tuple = new Tuple( fileMap[inBedName], [ 'sample': aSample, 'genome': sampleGenomeMap[aSample]['name'] ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeGenomeBrowserFilesChannelSetupTss TSS region files"
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-
-    }
-    */
 
     return( outTuples )
 }
@@ -4381,29 +4207,18 @@ def makeGenomeBrowserFilesChannelSetupMergedPeaks( inPaths, sampleSortedNames ) 
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def inMergedPeaks = aSample + '-merged_peaks.bed'
-        def outBedFile = aSample + '-merged_peaks.gb.bed'
-        def outBigBedFile = aSample + '-merged_peaks.gb.bb'
-        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample, 'outBedFile': outBedFile, 'outBigBedFile': outBigBedFile ] )
+        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println 'makeGenomeBrowserFilesChannelSetupMergedPeaks'
-    outTuples.each { aTuple ->
-        def aPath = aTuple[0]
-        def aFile = aPath.getFileName().toString()
-        println "aSample: ${aTuple[1]['sample']}"
-        println "aFile: ${aFile}"
-        println "aPath: ${aPath}"
-    }
-    */
 
     return( outTuples )
 }
@@ -4430,7 +4245,10 @@ def makeGenomeBrowserFilesChannelSetupTranspositionSites( inPaths, sampleSortedN
         filesFound.add( aPath.getFileName().toString() )
     }
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def pathMap = [:]
@@ -4451,20 +4269,9 @@ def makeGenomeBrowserFilesChannelSetupTranspositionSites( inPaths, sampleSortedN
 
     def outTuples = []
     sampleSortedNames.each { aSample ->
-        def outBedFile = aSample + '-transposition_sites.gb.bed'
-        def outBigBedFile = aSample + '-transposition_sites.gb.bb'
-        def tuple = new Tuple( pathMap[aSample]['bed'], pathMap[aSample]['tbi'], [ 'sample': aSample, 'outBedFile': outBedFile, 'outBigBedFile': outBigBedFile ] )
+        def tuple = new Tuple( pathMap[aSample]['bed'], pathMap[aSample]['tbi'], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
-
-    /*
-    ** diagnostics
-    println "makeGenomeBrowserFilesChannelSetupTranspositionSites"
-    outTuples.each { aTuple ->
-        println "inBed: ${aTuple[0]}"
-        println "inTbi: ${aTuple[1]}"
-    }
-    */
 
     return( outTuples )
 }
@@ -4486,7 +4293,10 @@ def makeGenomeBrowserFilesChannelSetupChromosomeSizes( inPaths, sampleSortedName
     def fileMap = getFileMap( inPaths )
     def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-        assert aFile in filesFound : "missing expected file \'${aFile}\' in channel"
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
     }
 
     def outTuples = []
@@ -4497,17 +4307,343 @@ def makeGenomeBrowserFilesChannelSetupChromosomeSizes( inPaths, sampleSortedName
         outTuples.add( tuple )
     }
 
+    return( outTuples )
+}
+
+
+/*
+** Set up a channel for getting fragments.
+*/
+def getBandingScoresChannelSetupFragments( inPaths, sampleSortedNames ) {
     /*
-    ** diagnostics
-    println "makeWindowedGenomeIntervalsChannelSetup"
-    outTuples.each { aTuple ->
-        println "sample: ${aTuple[1]['sample']}"
-        println "genomeSizes: ${aTuple[1]['genomeSizes']}"
-    }
+    ** Check for expected fragments.txt.gz files.
     */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-fragments.txt.gz'
+        filesExpected.add( fileName )
+    }
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-fragments.txt.gz.tbi'
+        filesExpected.add( fileName )
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
+    }
+
+    def pathMap = [:]
+    sampleSortedNames.each { aSample ->
+        pathMap[aSample] = [:]
+    }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /fragments[.]txt[.]gz$/ ) {
+            pathMap[aSample]['fragment'] = aPath
+        } else if( aFile =~ /fragments[.]txt[.]gz[.]tbi$/ ) {
+            pathMap[aSample]['fragmentTbi'] = aPath
+        } else {
+            println "Warning: getBandingScoresChannelSetupFragments: unexpected file \'${fileName}\'"
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def tuple = new Tuple( pathMap[aSample]['fragment'], pathMap[aSample]['fragmentTbi'], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
 
     return( outTuples )
 }
+
+
+/*
+** Set up channel for making cell whitelist.
+*/
+def getBandingScoresChannelSetupCellWhitelist( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected cell_whitelist.txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-called_cells_whitelist.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inCellWhitelist = aSample + '-called_cells_whitelist.txt'
+        def tuple = new Tuple( fileMap[inCellWhitelist], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+def callMotifsChannelSetupMergedPeaks( inLists, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Make tuples of file names, sample names, and fasta and motifs file names.
+    */
+    def outTuples = []
+	inLists.each { aList ->
+		def aFile = aList[0].getFileName().toString()
+		def aSample = aList[0].getFileName().toString().split( '-' )[0]
+		def inMergedPeaks = aList[0]
+		def gc_bin = aList[1]
+		def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def fasta_exists = aGenomeJsonMap.containsKey( 'fasta' )
+        def motifs_exists = aGenomeJsonMap.containsKey( 'motifs' )
+        def fasta = fasta_exists ? aGenomeJsonMap['fasta'] : null
+        if( fasta && !checkFile( fasta ) ) {
+        	System.exit( -1 )
+        }
+        def motifs = motifs_exists ? aGenomeJsonMap['motifs'] : null
+		if( motifs && !checkFile( motifs ) ) {
+        	System.exit( -1 )
+        }
+        def tuple = new Tuple( inMergedPeaks, [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'fasta': fasta, 'motifs': motifs, 'gc_bin': gc_bin ] )
+        outTuples.add( tuple )	}
+	
+    return( outTuples )
+
+}
+
+
+def makeMotifMatrixChannelSetupPeakCalls( inPaths, sampleSortedNames, sampleGenomeMap ) {
+	/*
+	** Gather *.bb files into map keyed by sample name.
+	*/
+	def pathSetMap = [:]
+	sampleSortedNames.each { aSample ->
+		pathSetMap[aSample] = []
+	}
+	inPaths.each { aPath ->
+		def aFile = aPath.getFileName().toString()
+		def aSample = aPath.getFileName().toString().split( '-' )[0]
+		pathSetMap[aSample].add( aPath )
+	}
+
+	/*
+	** Check that each sample has the same number of files.
+	** (A rudimentary test.)
+	*/
+	def countFiles = 0
+	sampleSortedNames.each { aSample ->
+		def fastaFlag = false
+		def motifsFlag = false
+		def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def fasta_exists = aGenomeJsonMap.containsKey( 'fasta' )
+        def motifs_exists = aGenomeJsonMap.containsKey( 'motifs' )
+        def fasta = fasta_exists ? aGenomeJsonMap['fasta'] : null
+        if( fasta && checkFile( fasta ) ) {
+        	fastaFlag = true
+        }
+        def motifs = motifs_exists ? aGenomeJsonMap['motifs'] : null
+		if( motifs && checkFile( motifs ) ) {
+        	motifsFlag = true
+        }
+        if( fastaFlag && motifsFlag ) {
+			if( countFiles == 0 ) {
+				countFiles = pathSetMap[aSample].size()
+			}
+			else {
+				if( pathSetMap[aSample].size() != countFiles ) {
+					printErr( "Error: inconsistent number of peaks calls files (by GC bin)" )
+					System.exit( -1 )
+				}
+			}
+		}
+	}
+	
+	def outTuples = []
+	sampleSortedNames.each { aSample ->
+		pathSetMap[aSample] = pathSetMap[aSample].sort()
+		def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def fasta_exists = aGenomeJsonMap.containsKey( 'fasta' )
+        def motifs_exists = aGenomeJsonMap.containsKey( 'motifs' )
+        def fasta = fasta_exists ? aGenomeJsonMap['fasta'] : null
+        if( fasta && !checkFile( fasta ) ) {
+        	System.exit( -1 )
+        }
+        def motifs = motifs_exists ? aGenomeJsonMap['motifs'] : null
+		if( motifs && !checkFile( motifs ) ) {
+        	System.exit( -1 )
+        }
+        def tuple = new Tuple( pathSetMap[aSample], [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'fasta': fasta, 'motifs': motifs ] )
+        outTuples.add( tuple )
+	}
+
+	return( outTuples )
+}
+
+
+def makeMotifMatrixChannelSetupMergedPeaks( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected bed files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-merged_peaks.bed'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inMergedPeaks = aSample + '-merged_peaks.bed'
+		def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def fasta_exists = aGenomeJsonMap.containsKey( 'fasta' )
+        def motifs_exists = aGenomeJsonMap.containsKey( 'motifs' )
+        def fasta = fasta_exists ? aGenomeJsonMap['fasta'] : null
+        if( fasta && !checkFile( fasta ) ) {
+        	System.exit( -1 )
+        }
+        def motifs = motifs_exists ? aGenomeJsonMap['motifs'] : null
+		if( motifs && !checkFile( motifs ) ) {
+        	System.exit( -1 )
+        }
+        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'fasta': fasta, 'motifs': motifs ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+def makeReducedDimensionMatrixChannelSetupPeakMatrix( inTuples, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected files.
+    */
+    def fileName
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        fileName = aSample + '-peak_matrix.mtx.gz'
+        filesExpected.add( fileName )
+        fileName = aSample + '-peak_matrix.columns.txt'
+        filesExpected.add( fileName )
+        fileName = aSample + '-peak_matrix.rows.txt'
+        filesExpected.add( fileName )
+    }
+    def filesFound = []
+    inTuples.each { aTuple ->
+    	aTuple.each { aPath ->
+    		def aFile = aPath.getFileName().toString()
+    		filesFound.add( aFile )
+    	}
+    }
+    filesExpected.each { aFile ->
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
+    }
+    
+	/*
+	** Gather paths by sample.
+	*/
+    def pathSetMap = [:]
+	sampleSortedNames.each { aSample ->
+		pathSetMap[aSample] = []
+    }
+    inTuples.each { aTuple ->
+    	aTuple.each { aPath ->
+			def aFile = aPath.getFileName().toString()
+			def aSample = aPath.getFileName().toString().split( '-' )[0]
+			pathSetMap[aSample].add( aPath )    		
+    	}
+   	}
+   	
+	/*
+	** Prepare output tuples.
+	*/
+	outTuples = []
+    sampleSortedNames.each { aSample ->
+    	tuple = new Tuple( pathSetMap[aSample], [ 'sample': aSample ] )
+    	outTuples.add( tuple )
+    }
+	
+	return( outTuples )
+}
+
+
+def makeReducedDimensionMatrixChannelSetupPromoterMatrix( inTuples, sampleSortedNames, sampleGenomeMap ) {
+    /*
+    ** Check for expected files.
+    */
+	def fileName
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        fileName = aSample + '-promoter_matrix.mtx.gz'
+        filesExpected.add( fileName )
+        fileName = aSample + '-promoter_matrix.columns.txt'
+        filesExpected.add( fileName )
+        fileName = aSample + '-promoter_matrix.rows.txt'
+        filesExpected.add( fileName )
+    }
+    def filesFound = []
+    inTuples.each { aTuple ->
+    	aTuple.each { aPath ->
+    		def aFile = aPath.getFileName().toString()
+    		filesFound.add( aFile )
+    	}
+    }
+    filesExpected.each { aFile ->
+		if( !( aFile in filesFound ) ) {
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
+			System.exit( -1 )
+		}
+    }
+    
+	/*
+	** Gather paths by sample.
+	*/
+    def pathSetMap = [:]
+	sampleSortedNames.each { aSample ->
+		pathSetMap[aSample] = []
+    }
+    inTuples.each { aTuple ->
+    	aTuple.each { aPath ->
+			def aFile = aPath.getFileName().toString()
+			def aSample = aPath.getFileName().toString().split( '-' )[0]
+			pathSetMap[aSample].add( aPath )    		
+    	}
+   	}
+   	
+	/*
+	** Prepare output tuples.
+	*/
+	outTuples = []
+    sampleSortedNames.each { aSample ->
+    	tuple = new Tuple( pathSetMap[aSample], [ 'sample': aSample ] )
+    	outTuples.add( tuple )
+    }
+	
+	return( outTuples )
+}
+
 
 
 

@@ -180,6 +180,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
        ylab="Number of Reads", xlab='Barcode Rank', pch=16, log='xy', cex=1, ylim = c(ymin, ymax), xlim=c(xmin, xmax))
   points(x=noise_df$x, y=noise_df$y, col='#d3d3d3', log='xy', pch=16, cex=1, ylim = c(ymin, ymax), xlim=c(xmin, xmax))
 
+
   legend("bottomleft",c(paste0("Total Reads: ", total_reads),
                     paste0("\n Fraction Reads in Cells: ", round(fraction_reads_in_cells, 4)),
                     paste0("\n Total Barcodes: ",total_barcodes),
@@ -188,6 +189,21 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
                     paste0("\n Median Reads/Cell: ", median_reads_per_cell),
                     paste0("\n Range of Reads/Cell: ", min_reads_per_cell," - ", max_reads_per_cell)),bty="n", cex=0.75, pt.cex = 1, text.font=2)
   grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
+
+  file_name <- paste0(args$sample_name, '_knee_plot.png')
+  png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
+  plot(x=cell_df$x, y=cell_df$y, col="mediumseagreen", main=paste0(sample_name, ' log10(Reads Per Cell)'),
+       ylab="Number of Reads", xlab='Barcode Rank', pch=16, log='xy', cex=1, ylim = c(ymin, ymax), xlim=c(xmin, xmax))
+  points(x=noise_df$x, y=noise_df$y, col='#d3d3d3', log='xy', pch=16, cex=1, ylim = c(ymin, ymax), xlim=c(xmin, xmax))
+  legend("bottomleft",c(paste0("Total Reads: ", total_reads),
+                    paste0("\n Fraction Reads in Cells: ", round(fraction_reads_in_cells, 4)),
+                    paste0("\n Total Barcodes: ",total_barcodes),
+                    paste0("\n Number of Cells: ", number_of_cells),
+                    paste0("\n Fraction HS (cells only): ", round(fraction_hs, 4)),
+                    paste0("\n Median Reads/Cell: ", median_reads_per_cell),
+                    paste0("\n Range of Reads/Cell: ", min_reads_per_cell," - ", max_reads_per_cell)),bty="n", cex=0.75, pt.cex = 1, text.font=2)
+  grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")  
+  dev.off()
 
   # Most other plots use only called cells
   subsetmat.sample = sample_counts[currsubcells, ]
@@ -208,6 +224,17 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
   abline(v=log10(median_total_fragments),lwd=2,lty="dashed")
 
+  file_name <- paste0(args$sample_name, '_estimated_frag_distribution.png')
+  png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
+  hist(log10(totalfrags), main=paste0(sample_name, " Estimated Fragments"), col="orange",lwd=2,pch=20,las=1, breaks=60)
+  legend("topright",
+    c(paste0("\n Median Frac Mol Obs: ", round(median_fraction_molecules_observed, 4)),
+    paste0("\n Median Dup Rate: ", round(median_duplication_rate, 4)),
+    paste0("\n Median Total Frags Est: ", round(median_total_fragments, 4))),
+  bty="n", cex=0.75, pt.cex = 1, text.font=2)
+  abline(v=log10(median_total_fragments),lwd=2,lty="dashed")
+  dev.off()
+  
   # FRiP plot
   frip = subsetmat.sample$total_deduplicated_peaks/subsetmat.sample$total_deduplicated
   median_per_cell_frip = median(frip)
@@ -221,6 +248,18 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
     paste0("\n Total Merged Peaks: ", total_merged_peaks)),
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
 
+  file_name <- paste0(args$sample_name, '_FRIP.png')
+  png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
+  hist(frip,
+        xlab="Fraction of Reads Mapping to DHS", main=paste0(sample_name, ' Cells FRiP'), col="dodgerblue2",lwd=2,pch=20,las=1, breaks=60)
+  abline(v=median_per_cell_frip,lwd=2,lty="dashed")
+  legend("topright",
+    c(paste0("\n Median FRiP: ", round(median_per_cell_frip, 4)),
+    paste0("\n Sample Peaks: ", sample_peak_counts),
+    paste0("\n Total Merged Peaks: ", total_merged_peaks)),
+  bty="n", cex=0.75, pt.cex = 1, text.font=2)
+  dev.off()
+  
   # TSS plot
   frit = subsetmat.sample$total_deduplicated_tss/subsetmat.sample$total_deduplicated
   median_per_cell_frit= median(frit)
@@ -235,7 +274,12 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   plot(x=sample_insert_sizes$insert_size, y=sample_insert_sizes$count, type='l', col='red', xlab='Insert Size (bp)', ylab='Count (reads)', main=paste0(sample_name, ' Insert Sizes'))
   grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
 
-
+  file_name <- paste0(args$sample_name, '_insert_size_dist.png')
+  png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
+  plot(x=sample_insert_sizes$insert_size, y=sample_insert_sizes$count, type='l', col='red', xlab='Insert Size (bp)', ylab='Count (reads)', main=paste0(sample_name, ' Insert Sizes'))
+  grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
+  dev.off()
+  
   # TSS enrichment  
   ## compute the min at edge of window as mean of left and right for average of 10bp on each side
   left_count = mean(sample_tss_coverage$total[sample_tss_coverage$position < min(sample_tss_coverage$position) + 10])
@@ -258,14 +302,50 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
                         paste0("Observed Collision Rate: ",signif(1-(humancounts + mousecounts)/totalcounts,4)),
                         paste0("Calculated Collision Rate: ",signif(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts),4)),
                         paste0("Bloom Collision Rate: ",signif(bloom_collision(totalcounts-mousecounts,totalcounts-humancounts,totalcounts-(humancounts+mousecounts)),4))))
+
+    file_name <- paste0('Barnyard_plot.png')
+    png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
+    plot(barnyard_df$human,barnyard_df$mouse,pch=20,xlab="Human reads",ylab="Mouse reads", col=barnyard_df$color)
+    abline(a=0, b=1-DOUBLET_PERCENTAGE_THRESHOLD,lwd=2,lty="dashed", col='lightgrey')
+    abline(a=0, b=1/(1-DOUBLET_PERCENTAGE_THRESHOLD),lwd=2,lty="dashed", col='lightgrey')
+
+    legend("topright",c(paste0("Total Cells: ",totalcounts),
+                        paste0("Human Cells: ",humancounts),
+                        paste0("Mouse Cells: ",mousecounts),
+                        paste0("Observed Collision Rate: ",signif(1-(humancounts + mousecounts)/totalcounts,4)),
+                        paste0("Calculated Collision Rate: ",signif(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts),4)),
+                        paste0("Bloom Collision Rate: ",signif(bloom_collision(totalcounts-mousecounts,totalcounts-humancounts,totalcounts-(humancounts+mousecounts)),4))))
+    dev.off()
   } else {
     plot(sample_tss_coverage$position, sample_tss_coverage$enrichment, type='l', col='black', xlab='Position relative to TSS (bp)', ylab='Fold Enrichment', main=paste0(sample_name, ' TSS enrichment'))
     grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
     legend("topright",
         c(paste0("\n TSS enrichment: ", round(tss_enrichment, 4))),
     bty="n", cex=0.75, pt.cex = 1, text.font=2)
+
+    file_name <- paste0(args$sample_name, '_tss_enrichment.png')
+    png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
+    plot(sample_tss_coverage$position, sample_tss_coverage$enrichment, type='l', col='black', xlab='Position relative to TSS (bp)', ylab='Fold Enrichment', main=paste0(sample_name, ' TSS enrichment'))
+    grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
+    legend("topright",
+        c(paste0("\n TSS enrichment: ", round(tss_enrichment, 4))),
+    bty="n", cex=0.75, pt.cex = 1, text.font=2)
+    dev.off()
   }
 
+  # UMI per cell histogram
+  file_name <- paste0(args$sample_name, '_umi_per_cell.png')
+  png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
+  x <- sample_counts$total_deduplicated
+  x <- x[x>10]
+  xrange <- range(log10(x))
+  breaks <- 20 * (xrange[2] - xrange[1])
+  hist(log10(x),xaxt='n',axes=TRUE,breaks=breaks,plot=TRUE,main='Histogram of UMI per Cell',xlab='UMI per cell')
+  tick_location <- axTicks(1)
+  tick_value <- 10^tick_location
+  axis(1, at=tick_location, labels=tick_value)
+  dev.off()
+  
   message('-> sample done.')
 
   # Return any key stats for output file
