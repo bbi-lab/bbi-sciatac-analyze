@@ -61,6 +61,13 @@ plot_umap_pdf <- function(in_cds, umap_plot_file) {
     ggsave(umap_plot_file)
 }
 
+plot_umap_png <- function(in_cds, umap_plot_file) {
+	umap_plot_file <- str_replace(umap_plot_file, '[.]pdf', '')
+    umap_plot_file <- paste0(umap_plot_file, '.png')
+	plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE)
+    ggsave(umap_plot_file)
+}
+
 parser <- ArgumentParser(description='Script to perform do TF-IDF-based dim reduction on sci-ATAC-seq data.')
 parser$add_argument('peak_matrix_file', help='MTX file to load.')
 parser$add_argument('promoter_matrix_file', help='MTX file to load with promoter counts.')
@@ -180,6 +187,7 @@ readr::write_delim(data.frame(tsne_coords), file=args$tsne_coords, delim='\t')
 readr::write_delim(data.frame(pca_coords), file=args$pca_coords, delim='\t')
 
 plot_umap_pdf(in_cds=cds, args$umap_plot)
+plot_umap_png(in_cds=cds, args$umap_plot)
 
 if (!is.null(args$monocle3_cds)) {
     saveRDS(cds, args$monocle3_cds)

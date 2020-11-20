@@ -1391,7 +1391,7 @@ process summarizeCellCallsProcess {
     module 'openjdk/latest:modules:modules-init:modules-gs'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.pdf", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "summarize_cell_calls" ) }, pattern: "*-called_cells_summary.stats.txt", mode: 'copy'
-    publishDir path: "${output_dir}/analyze_dash", pattern: "*.png", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_dash/img", pattern: "*.png", mode: 'copy'
 
     input:
     set file( inCountReports ), inCountReportsMap from summarizeCellCallsInChannelCountReports
@@ -1429,6 +1429,7 @@ process summarizeCellCallsProcess {
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
         --plot \${outSummaryPlot} \
         --output_stats \${outSummaryStats} \${barnyardParams}
+    echo 'all done for now and all'
     """
 }
 
@@ -1548,38 +1549,6 @@ process getBandingScoresProcess {
     file( "*-per_cell_insert_sizes.txt" ) into getBandingScoresOutChannelCellInsertSizes
     file( "*-banding_scores.txt" ) into getBandingScoresOutChannelBandingScores
 
-//        # OPTIONAL BANDING SCORES QC
-//        if args.calculate_banding_scores:
-//            pipeline.add_job(GetPerCellInsertSizes(fragments_file[i], per_cell_insert_sizes[i], cell_whitelist[i]))  // previous process
-//            pipeline.add_job(GetBandingScores(per_cell_insert_sizes[i], banding_scores[i], cell_whitelist[i]))
-//
-//class GetPerCellInsertSizes:
-//    def __init__(self, fragments_file, output_file, cell_whitelist):
-//        self.memory = '12G'
-//        self.inputs = [fragments_file, cell_whitelist]
-//        self.outputs = [output_file]
-//
-//        self.command = """
-//        module purge
-//        module load modules modules-init modules-gs
-//        module load zlib/1.2.6
-//        module load samtools/1.9
-//        source {pipeline_path}/load_python_env_reqs.sh
-//        source {SCRIPTS_DIR}/python_env/bin/activate
-//
-//        python {SCRIPTS_DIR}/get_insert_size_distribution_per_cell.py {fragments_file} {output_file} --barcodes {cell_whitelist}
-//        """.format(PIPELINE_PATH=PIPELINE_PATH, SCRIPTS_DIR=SCRIPTS_DIR, fragments_file=fragments_file, cell_whitelist=cell_whitelist, output_file=output_file)
-//
-//class GetBandingScores:
-//    def __init__(self, insert_size_file, banding_scores_file, cell_whitelist):
-//        self.memory = '12G'
-//        self.inputs = [insert_size_file, cell_whitelist]
-//        self.outputs = [banding_scores_file]
-//
-//        self.command = """
-//        Rscript {SCRIPTS_DIR}/calculate_nucleosome_banding_scores.R {insert_size_file} {banding_scores_file} --barcodes {cell_whitelist}
-//        """.format(SCRIPTS_DIR=SCRIPTS_DIR, insert_size_file=insert_size_file, banding_scores_file=banding_scores_file, cell_whitelist=cell_whitelist)
-
 	when:
 		params.calculate_banding_scores
 
@@ -1655,42 +1624,6 @@ process callMotifsProcess {
 	output:
 	file( "*-peak_calls.bb" ) into callMotifsOutChannelPeakCalls
 	
-// MOTIF_CALLING_GC_BINS = 25
-// peak_motif_files = [os.path.join(PEAK_MOTIFS_PATH, 'gc_binned.%s.peak_calls.bb' % gc_bin) for gc_bin in range(1, MOTIF_CALLING_GC_BINS + 1)]
-//    # MOTIF CALLING IN PEAKS + MOTIF MATRIX THAT IS PER PEAK SET NOT PER SAMPLE
-//    motif_calling_outputs = []
-//    run_motif_calling = 'motifs' in GENOME_FILES[args.genome] and 'fasta' in GENOME_FILES[args.genome]
-//    if run_motif_calling:
-//        for gc_bin in range(0, MOTIF_CALLING_GC_BINS):
-//            motifs = GENOME_FILES[args.genome]['motifs']
-//            fasta = GENOME_FILES[args.genome]['fasta']
-//
-//            # Note these are really just temp, so not a huge deal that they aren't declared up top
-//            # with everything else
-//            output_file = peak_motif_files[gc_bin]
-//            motif_calling_outputs.append(output_file)
-//
-//            pipeline.add_job(PeakMotifs(fasta, merged_peaks, motifs, output_file, gc_bin=gc_bin))
-//
-//    else:
-//        print('The specified genome %s, does not have both a "motifs" and "fasta" entry defined, so skipping motif calls.' % args.genome)
-//
-//class PeakMotifs:
-//    def __init__(self, fasta, peaks, motifs, output_file, gc_bin, pwm_threshold=1e-7):
-//        self.memory = '10g'
-//        self.inputs = [fasta, peaks, motifs]
-//        self.outputs = output_file
-//
-//        self.command = """
-//        module purge
-//        module load modules modules-init modules-gs
-//        source {pipeline_path}/load_python_env_reqs.sh
-//        source {SCRIPTS_DIR}/python_env/bin/activate
-//
-//        python {SCRIPTS_DIR}/call_peak_motifs.py {fasta} {peaks} {motifs} {output_file} --gc_bin {gc_bin} --pwm_threshold {pwm_threshold}
-//        """.format(PIPELINE_PATH=PIPELINE_PATH, SCRIPTS_DIR=SCRIPTS_DIR, fasta=fasta, peaks=peaks, motifs=motifs, output_file=output_file, gc_bin=gc_bin, pwm_threshold=pwm_threshold)
-//
-
 	when:
 		inMergedPeaksMap['fasta'] != null && inMergedPeaksMap['motifs'] != null
 		
@@ -1747,41 +1680,6 @@ process makeMotifMatrixProcess {
 	output:
 	file( "*-peak_motif_matrix.*" ) into makeMotifMatrixOutChannel
 
-// Note: this appears in a conditional block ' if run_motif_calling:' see above
-//        pipeline.add_job(MakeMotifMatrix(motif_calling_outputs,
-//                            GENOME_FILES[args.genome]['fasta'],
-//                            merged_peaks,
-//                            GENOME_FILES[args.genome]['motifs'],
-//                            peak_tf_matrix))
-//
-//
-// 
-// MOTIF_MATRICES_PATH = os.path.join(args.outdir, 'motif_matrices')
-// peak_tf_matrix = os.path.join(MOTIF_MATRICES_PATH, 'peak_motif_matrix.mtx.gz')
-//class MakeMotifMatrix:
-//    def __init__(self, peak_motif_files, fasta, peaks, motifs, peak_tf_matrix):
-//        self.inputs = peak_motif_files + [fasta, peaks, motifs]
-//        self.outputs = [peak_tf_matrix]
-//        self.memory = '10g'
-//
-//        peak_motif_files_string = ' '.join(peak_motif_files)
-//
-//        self.command = f("""
-//        module purge
-//        module load modules modules-init modules-gs
-//        module load zlib/1.2.6 pigz/latest
-//        source {pipeline_path}/load_python_env_reqs.sh
-//        source {SCRIPTS_DIR}/python_env/bin/activate
-//
-//
-//        python {SCRIPTS_DIR}/generate_motif_matrix.py \
-//        --peak_motif_files {peak_motif_files_string} \
-//        --fasta {fasta} \
-//        --peaks {peaks} \
-//        --motifs {motifs} \
-//        --peak_tf_matrix {peak_tf_matrix}
-//        """)
-
 	when:
 		inPeakCallsMap['fasta'] != null && inPeakCallsMap['motifs'] != null
 
@@ -1804,7 +1702,7 @@ process makeMotifMatrixProcess {
 
 /*
 ** ================================================================================
-** Make reduced dimension matrix (optional).
+** Make reduced dimension matrix.
 ** ================================================================================
 */
 
@@ -1848,8 +1746,9 @@ process makeReducedDimensionMatrixProcess {
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_coords.txt", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-tsne_coords.txt", mode: 'copy'
 //    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-tfidf_matrix.*", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.pdf", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-monocle3_cds.rds", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-umap_plot.png", mode: 'copy'
 
 	input:
 	tuple file( "*" ), inPeakMatrixMap from makeReducedDimensionMatrixInChannelPeakMatrix
@@ -1946,6 +1845,44 @@ process makeReducedDimensionMatrixProcess {
 	--sites_per_cell_threshold \${sitesPerCellThreshold} \
 	--remove_top_ntile \${removeTopNtile} \
 	--fast_tsne_path ${script_dir}/FIt-SNE/bin/fast_tsne
+	echo "thats all now"
+	"""
+}
+
+
+/*
+** ================================================================================
+** Make experiment dashboard.
+** ================================================================================
+*/
+
+summarizeCellCallsOutChannelCallCellsSummaryStats
+	.toList()
+	.map { experimentDashboardProcessChannelSetup( it, sampleSortedNames, sampleGenomeMap ) }
+	.set { experimentDashboardProcessInChannel }
+	
+process experimentDashboardProcess {
+	cache 'lenient'
+    errorStrategy onError
+	publishDir path: "${output_dir}/analyze_dash/js", pattern: "run_data.js", mode: 'copy'
+	
+	input:
+	file( "*") from experimentDashboardProcessInChannel
+
+	output:
+	file( "run_data.js" ) into experimentDashboardProcessOutChannel
+
+	script:
+	"""
+	mkdir -p ${output_dir}/analyze_dash/js
+	${script_dir}/make_run_data.py -i ${output_dir}/analyze_out/args.json -o run_data.js
+	
+	mkdir -p ${output_dir}/analyze_dash/js ${output_dir}/analyze_dash/img
+	cp ${script_dir}/skeleton_dash/img/*.png ${output_dir}/analyze_dash/img
+	cp ${script_dir}/skeleton_dash/js/* ${output_dir}/analyze_dash/js
+	cp -r ${script_dir}/skeleton_dash/style ${output_dir}/analyze_dash
+	cp ${script_dir}/skeleton_dash/exp_dash.html ${output_dir}/analyze_dash
+	echo "all done ah"
 	"""
 }
 
@@ -2301,15 +2238,37 @@ def checkFastqs( params, sampleLaneMap ) {
 
 
 /*
+** Get sample names from demux args.json file and return in a list.
+*/
+def getArgsJsonSamples( args_json ) {
+	def samples = []
+	args_json.each { key, run ->
+		run['samples'].each { sample ->
+			samples.add( sample )
+		}
+	}
+	return( samples.unique() )
+}
+
+
+/*
 ** Write run data JSON file(s).
 */
 def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow ) {
+	def samples
+	if( params.samples ) {
+		samples = params.samples
+	}
+	else {
+		samples = getArgsJsonSamples( argsJson )
+	}
+	
     analyzeDict = [:]
     analyzeDict['run_date'] = timeNow.format( 'yyyy-MM-dd_HH-mm-ss' )
     analyzeDict['demux_dir'] = demux_dir
     analyzeDict['analyze_dir'] = analyze_dir
     analyzeDict['genomes_json'] = params.genomes_json
-    analyzeDict['samples'] = params.samples
+    analyzeDict['samples'] = samples
     analyzeDict['bowtie_seed'] = params.bowtie_seed
     analyzeDict['reads_threshold'] = params.reads_threshold
     analyzeDict['no_secondary'] = params.no_secondary
@@ -4644,6 +4603,10 @@ def makeReducedDimensionMatrixChannelSetupPromoterMatrix( inTuples, sampleSorted
 	return( outTuples )
 }
 
+
+def experimentDashboardProcessChannelSetup( inPaths, sampleSortedNames, sampleGenomeMap ) {
+	return( inPaths )
+}
 
 
 
