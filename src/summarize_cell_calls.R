@@ -94,12 +94,25 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   sample_name = args$sample_name
   message(glue('Processing {sample_name}...'))
 
+  # read count table file format
+  # cell    total   total_deduplicated      total_deduplicated_peaks        total_deduplicated_tss
+  # P2-E12_P2-E12_F09-rowF09-colF06 19840   12748   3942    1858
   message('-> loading counts...')
   sample_counts = readr::read_delim(args$read_count_tables[[i]], '\t')
+
+  # insert sizes table file format
+  # insert_size     count
+  # 0       0
+  # 1       0
   message('-> loading insert sizes...')
   sample_insert_sizes = readr::read_delim(args$insert_size_tables[[i]], '\t')
+
   message('-> loading sample peaks...')
   sample_peak_counts = nrow(read.delim(args$peak_call_files[[i]], header=FALSE))
+
+  # tss region coverage file format
+  # position        total
+  # -1000.5 1534
   message('-> loading TSS region coverage...')
   sample_tss_coverage = readr::read_delim(args$per_base_tss_region_coverage_files[[i]], '\t')
 
@@ -320,9 +333,8 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
                         paste0("Observed Collision Rate: ",signif(1-(humancounts + mousecounts)/totalcounts,4)),
                         paste0("Calculated Collision Rate: ",signif(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts),4)),
                         paste0("Bloom Collision Rate: ",bloom_collision_rate)))
-#                        paste0("Bloom Collision Rate: ",signif(bloom_collision(totalcounts-mousecounts,totalcounts-humancounts,totalcounts-(humancounts+mousecounts)),4))))
 
-    file_name <- paste0('barnyard.png')
+    file_name <- paste0(args$sample_name, '.png')
     png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
     plot(barnyard_df$human,barnyard_df$mouse,pch=20,xlab="Human reads",ylab="Mouse reads", col=barnyard_df$color)
     abline(a=0, b=1-DOUBLET_PERCENTAGE_THRESHOLD,lwd=2,lty="dashed", col='lightgrey')
@@ -334,7 +346,6 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
                         paste0("Observed Collision Rate: ",signif(1-(humancounts + mousecounts)/totalcounts,4)),
                         paste0("Calculated Collision Rate: ",signif(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts),4)),
                         paste0("Bloom Collision Rate: ",bloom_collision_rate)))
-#                        paste0("Bloom Collision Rate: ",signif(bloom_collision(totalcounts-mousecounts,totalcounts-humancounts,totalcounts-(humancounts+mousecounts)),4))))
     dev.off()
   } else {
   	# plot: tss_enrichment

@@ -1429,7 +1429,7 @@ process summarizeCellCallsProcess {
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
         --plot \${outSummaryPlot} \
         --output_stats \${outSummaryStats} \${barnyardParams}
-    echo 'all done for now and all'
+    echo 'all done for now and all aa'
     """
 }
 
@@ -1865,24 +1865,27 @@ process experimentDashboardProcess {
 	cache 'lenient'
     errorStrategy onError
 	publishDir path: "${output_dir}/analyze_dash/js", pattern: "run_data.js", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_out", pattern: "merged.called_cells_summary.pdf", mode: 'copy'
 	
 	input:
 	file( "*") from experimentDashboardProcessInChannel
 
 	output:
-	file( "run_data.js" ) into experimentDashboardProcessOutChannel
+	file( "run_data.js" ) into experimentDashboardProcessOutChannelRunData
+	file( "merged.called_cells_summary.pdf" ) into experimentDashboardProcessOutChannelMergedPdf
 
 	script:
 	"""
 	mkdir -p ${output_dir}/analyze_dash/js
 	${script_dir}/make_run_data.py -i ${output_dir}/analyze_out/args.json -o run_data.js
+    ${script_dir}/merge_summary_plots.py -i ${output_dir}/analyze_out/args.json -o merged.called_cells_summary.pdf
 	
 	mkdir -p ${output_dir}/analyze_dash/js ${output_dir}/analyze_dash/img
 	cp ${script_dir}/skeleton_dash/img/*.png ${output_dir}/analyze_dash/img
 	cp ${script_dir}/skeleton_dash/js/* ${output_dir}/analyze_dash/js
 	cp -r ${script_dir}/skeleton_dash/style ${output_dir}/analyze_dash
 	cp ${script_dir}/skeleton_dash/exp_dash.html ${output_dir}/analyze_dash
-	echo "all done ah"
+	echo "all done ahhhh"
 	"""
 }
 

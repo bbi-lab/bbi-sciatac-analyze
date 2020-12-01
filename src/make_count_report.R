@@ -10,8 +10,19 @@ parser$add_argument('tss_counts', help='Table of counts from tss regions.')
 parser$add_argument('count_report', help='Output file with all counts merged.')
 args = parser$parse_args()
 
+# duplicate counts file format
+# cell    total   total_deduplicated
+# P2-E12_P2-E12_F09-rowF09-colF06 19840   12748
 duplicate_counts = readr::read_delim(args$duplicate_counts, '\t')
+
+# peak counts file format
+# cell    count
+# P1-E01_P1-E01_A01-rowE01-colA05 1846
 peak_counts = readr::read_delim(args$peak_counts, '\t')
+
+# tss counts file format
+# cell    count
+# P1-E01_P1-E01_A01-rowE01-colA05 996
 tss_counts = readr::read_delim(args$tss_counts, '\t')
 
 colnames(peak_counts) = c('cell', 'total_deduplicated_peaks')
