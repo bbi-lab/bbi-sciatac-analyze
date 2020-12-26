@@ -1,195 +1,416 @@
-library(monocle3)
-library(ggplot2)
-library(readr)
-library(argparse)
-library(stringr)
-library(Matrix)
+suppressMessages(library(monocle3))
+suppressMessages(library(ggplot2))
+suppressMessages(library(dplyr))
+suppressMessages(library(stringr))
+suppressMessages(library(readr))
+suppressMessages(library(Matrix))
+suppressMessages(library(argparse))
 
-#monocle_version = packageVersion("monocle3")
-#print('Checking Monocle version...')
-#if (seurat_version < 3) {
-#    stop("Monocle 3 or greater is required due totype breaking changes in their API.")
-#}
-library(argparse)
-library(Matrix)
 
-thisFile <- function() {
-        cmdArgs <- commandArgs(trailingOnly = FALSE)
-        needle <- "--file="
-        match <- grep(needle, cmdArgs)
-        if (length(match) > 0) {
-                # Rscript
-                return(normalizePath(sub(needle, "", cmdArgs[match])))
-        } else {
-                # 'source'd via R console
-                return(normalizePath(sys.frames()[[1]]$ofile))
-        }
+########################################
+# I/O.
+########################################
+.get_aux_files <- function(mtx_file) {
+    base_name <- str_replace(mtx_file, '[.]gz$', '')
+    base_name <- str_replace(base_name, '[.]mtx$', '')
+    
+    features_file <- paste0(base_name, '.rows.txt')
+    cells_file <- paste0(base_name, '.columns.txt')
+    
+    return(list(features=features_file, cells=cells_file))
 }
 
-source(paste0(dirname(thisFile()), '/', 'r_helper_functions/io_functions.R'))
-source(paste0(dirname(thisFile()), '/', 'r_helper_functions/dim_reduction.R'))
 
-get_aux_files = function(mtx_file) {
-	base_name = str_replace(mtx_file, '[.]gz$', '')
-	base_name = str_replace(base_name, '[.]mtx$', '')
-
-	features_file = paste0(base_name, '.rows.txt')
-	cells_file = paste0(base_name, '.columns.txt')
-
-	return(list(features=features_file, cells=cells_file))
+load_mtx_file <- function(mtx_file) {
+    mat <- readMM(mtx_file)
+    dim_files <- .get_aux_files(mtx_file)
+    
+    if (! file.exists(dim_files$features)) {
+      stop(paste0(dim_files$features, ' file not found when loading ', mtx_file))
+    }
+    
+    if (! file.exists(dim_files$cells)) {
+      stop(paste0(dim_files$cells, ' file not found when loading ', mtx_file))
+    }
+    
+    rownames(mat) <- read.delim(dim_files$features, header=FALSE)$V1
+    colnames(mat) <- read.delim(dim_files$cells, header=FALSE)$V1
+    return(as(mat, "dgCMatrix"))
 }
 
-get_cell_metadata <- function(cells_file) {
-	cell_metadata<-read.table(cells_file, header=FALSE, sep='\t', stringsAsFactors=FALSE)
-    names(cell_metadata)[1]<-'V1'
-    row.names(cell_metadata)<-cell_metadata$V1
-	return(cell_metadata)
+
+########################################
+# Utility functions.
+########################################
+filter_features_z <- function(bmat, lower_bound=-1.5, upper_bound=1.5, downsample=NULL) {
+    feature_totals <- log10(Matrix::rowSums(bmat) + 1)
+    avg <- mean(feature_totals)
+    stdev <- sd(feature_totals)
+  
+    feature_z <- (feature_totals-avg)/stdev
+  
+    # Deal with corner case for missing or entirely non-zero windows (latter probably not a thing)
+    feature_z[feature_totals == 0] <- -Inf
+    feature_z[feature_totals == ncol(bmat)] <- Inf
+  
+    feature_totals <- feature_totals[feature_z > lower_bound & feature_z < upper_bound]
+    
+    if (!is.null(downsample)) {
+      probabilities <- pnorm(feature_totals, mean=avg, sd=stdev)
+      sampled_features <- sample(names(feature_totals), prob=probabilities, size=downsample, replace=FALSE)
+      feature_totals <- feature_totals[sampled_features]
+    }
+    return(bmat[names(feature_totals),])
 }
 
-get_feature_metadata <- function(features_file) {
-	feature_metadata<-data.frame(read.table(dim_file$features,header=FALSE, sep='\t', stringsAsFactors=FALSE))
-	feature_metadata<-data.frame(feature_metadata)
-	names(feature_metadata)<-c('gene_id', 'gene_short_name', 'biotype')
-	row.names(feature_metadata)<-feature_metadata$gene_id
-	return(feature_metadata )
+
+# Slightly better binarization from SnapATAC
+binarize_matrix <- function(mat, outlier.filter=1e-3) {
+    if (max(mat@x) == 1) {
+        return(mat)
+    }
+    # identify the cutoff using outlier.filter
+    count_cutoff <- max(1, quantile(mat@x, 1 - outlier.filter))
+    mat@x[mat@x > count_cutoff] <- 0
+    mat@x[mat@x > 0] <- 1
+    return(mat)
 }
 
-plot_umap_pdf <- function(in_cds, umap_plot_file) {
-	umap_plot_file <- str_replace(umap_plot_file, '[.]pdf', '')
+
+filter_regions <- function(features, blacklist_df) {
+    column_names <- c('chrom', 'start', 'end')
+  
+    if (! all(column_names %in% colnames(blacklist_df))) {
+      stop('chrom, start, and end must be columns in blacklist df.')
+    }
+  
+    features_df <- as.data.frame(str_split_fixed(features, '_', n=3))
+    colnames(features_df) <- column_names
+    features_df$start <- as.numeric(features_df$start)
+    features_df$end <- as.numeric(features_df$end)
+  
+    features_df.gr <- GRanges(
+      features_df$chrom,
+      IRanges(features_df$start, features_df$end)
+    )
+  
+    black_list.gr <- GRanges(
+      blacklist_df$chrom,
+      IRanges(blacklist_df$start, blacklist_df$end)
+    )
+  
+    matching_hits <- queryHits(findOverlaps(features_df.gr, black_list.gr))
+
+    return(features[-matching_hits])
+}
+
+
+test_peak_matrix <- function( peak_matrix, min_feature, min_cell )
+{
+    num_feature <- dim(peak_matrix)[1]
+    num_cell <- dim(peak_matrix)[2]
+    bad_matrix_mesg <- character()
+    if( num_feature < min_feature )
+    {
+        bad_matrix_mesg <- paste0(bad_matrix_mesg, '    too few features in peak matrix: ', num_feature, '\n')
+    }
+    if( num_cell < min_cell )
+    {
+        bad_matrix_mesg <- paste0(bad_matrix_mesg, '    too few cells in peak matrix: ', num_cell, '\n')
+    }
+    if(length(bad_matrix_mesg>0))
+    {
+        stop('ReduceDimensions: error:\n', bad_matrix_mesg, '  Stopping.\n')
+    }
+}
+
+
+########################################
+# Plotting functions.
+########################################
+plot_umap_pdf <- function(cds, umap_plot_file) {
+    umap_plot_file <- str_replace(umap_plot_file, '[.]pdf', '')
     umap_plot_file <- paste0(umap_plot_file, '.pdf')
-	plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE)
+    monocle3::plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE)
     ggsave(umap_plot_file)
 }
 
-plot_umap_png <- function(in_cds, umap_plot_file) {
-	umap_plot_file <- str_replace(umap_plot_file, '[.]pdf', '')
+plot_umap_png <- function(cds, umap_plot_file) {
+    umap_plot_file <- str_replace(umap_plot_file, '[.]png', '')
     umap_plot_file <- paste0(umap_plot_file, '.png')
-	plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE)
+    monocle3::plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE)
     ggsave(umap_plot_file)
 }
 
+
+########################################
+# Preprocess peak matrix.
+########################################
+#
+# Notes:
+#   o  the default umi_cutoff, frip_cutoff, and frit_cutoff values are
+#      meant to be absolute minima.
+#
+preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutoff=100, frip_cutoff=0.1, frit_cutoff=0.05, black_list_file=NULL, doublet_predict=FALSE, doublet_predict_top_ntile=0.1, cds_file='monocle3_cds.rds' )
+{
+    min_feature <- 10
+    min_cell <- 10
+
+    message('ReduceDimensions: sample: ', sample_name)
+
+    # load peak matrix for sample.
+    pMat <- load_mtx_file(mat_file)
+  
+    # binarize peak matrix
+    pMat <- binarize_matrix(pMat)
+
+    num_features_input <- dim(pMat)[1]
+    num_cells_input <- dim(pMat)[2]
+    message('ReduceDimensions: peak matrix dimensions: ', num_features_input, ' x ', num_cells_input)
+
+    test_peak_matrix(pMat, min_feature, min_cell)
+
+    ######################################################################################
+    # filter cells
+    ######################################################################################
+    # load summary stats for adding to col Data and reorder to match Cell order in matrices
+    cDat <- read.table(count_file, head = TRUE)
+    cDat_f <- cDat[match(colnames(pMat), cDat$cell),]
+
+    row.names(cDat_f) <- cDat_f$cell
+    colnames(cDat_f) <- c("cell", "total", "umi", "RIP", "RIT")
+    cDat_f$FRIP <- cDat_f$RIP / cDat_f$umi
+    cDat_f$FRIT <- cDat_f$RIT / cDat_f$umi
+    cDat_f$umi_binarized <- Matrix::colSums(pMat)
+  
+    # filter cells based on unique reads, FRIP and FRIT  (cutoffs set above)
+
+    message('ReduceDimensions: UMI cutoff: ', umi_cutoff)
+    message('ReduceDimensions: FRIP cutoff: ', frip_cutoff)
+    message('ReduceDimensions: FRIT cutoff: ', frit_cutoff)
+
+    qc_cells <- filter(cDat_f, umi_binarized > umi_cutoff, FRIP > frip_cutoff, FRIT > frit_cutoff) %>% select(cell)
+    pMat <- pMat[,colnames(pMat) %in% qc_cells$cell]
+
+    num_features_cell_filter <- dim(pMat)[1]
+    num_cells_cell_filter <- dim(pMat)[2]
+    message('ReduceDimensions: peak matrix dimensions post-cell filter: ', num_features_cell_filter, ' x ', num_cells_cell_filter)
+
+    test_peak_matrix(pMat, min_feature, min_cell)
+
+    ######################################################################################
+    # filter features
+    ######################################################################################
+    # remove outlier features (z-score based) .
+    pMat <- filter_features_z(bmat = pMat, lower_bound=-2, upper_bound=4, downsample=NULL)
+
+    num_features_feature_filter <- dim(pMat)[1]
+    num_cells_feature_filter <- dim(pMat)[2]
+    message('ReduceDimensions: peak matrix dimensions post-feature filter: ', num_features_feature_filter, ' x ', num_cells_feature_filter)
+  
+    test_peak_matrix(pMat, min_feature, min_cell)
+
+    # the filter_features function from the atac_helper script removes features that overlap blackout regions of the genome.
+    # load blacklist
+    if(!is.null(black_list_file))
+    {
+        message('ReduceDimensions: black list region file: ', black_list_file)
+        blacklist <- read.table(black_list_file, sep='\t')
+        colnames(blacklist) <- c('chrom', 'start', 'end')
+        features_f <- filter_regions(features=row.names(pMat), blacklist_df=blacklist)
+        pMat <- pMat[row.names(pMat) %in% features_f,]
+        num_features_feature_black_list_filter <- dim(pMat)[1]
+        num_cells_feature_black_list_filter <- dim(pMat)[2]
+        message('ReduceDimensions: peak matrix dimensions post-black-list filter: ', num_features_feature_black_list_filter, ' x ', num_cells_feature_black_list_filter)
+
+    }
+
+    ######################################################################################
+    # filter cells again
+    ######################################################################################
+    # remove cells that have zero counts after feature filtering
+    # Note: this is (probably) essential when doublet filtering
+    #       with scrublet in order to prevent (numpy) divide by
+    #       zero runtime warning because scrublet normalizes the
+    #       cell read counts.
+    umi_cells <- Matrix::colSums(pMat)
+    pMat <- pMat[,umi_cells>0]
+
+    num_features_cell_filter2 <- dim(pMat)[1]
+    num_cells_cell_filter2 <- dim(pMat)[2]
+    message('ReduceDimensions: peak matrix dimensions secondary post-cell filter: ', num_features_cell_filter2, ' x ', num_cells_cell_filter2)
+  
+    test_peak_matrix(pMat, min_feature, min_cell)
+
+    ######################################################################################
+    # filter out doublets
+    ######################################################################################
+    if(doublet_predict)
+    {
+        message('ReduceDimensions: doublet top ntile cutoff: ', sprintf( '%.4f', doublet_predict_top_ntile))
+        # this block calculates the doublet score and adds a column to the colData
+        # it does not filter out doublets
+        message('ReduceDimensions: read scrublet data')
+        scrub_res <- read.table(paste0(sample_name, '-scrublet_table.csv'),sep=',')
+        message('ReduceDimensions: read scrublet column names')
+        cell_names <- read.table(paste0(sample_name, '-scrublet_columns.txt'),header=FALSE)
+        scrub_res <- cbind(cell_names, scrub_res )
+        colnames(scrub_res) <- c('cell', 'doublet_score', 'predicted_doublet')
+
+        if(!anyNA(scrub_res$doublet_score) && !anyNA(scrub_res$predicted_doublet))
+        {
+            # mark top n-tile of cells with the highest doublet scores
+            message('ReduceDimensions: mark top ntile doublets')
+            threshold <- quantile(scrub_res$doublet_score, 1.0 - doublet_predict_top_ntile)
+            message('ReduceDimensions: doublet top ntile score threshold: ', sprintf('%.4f', threshold))
+            scrub_res$ntile_doublet <- sapply(scrub_res$doublet_score, function(x){
+              ifelse(x < threshold, "singlet", "doublet")})
+        }
+        else
+        {
+            message('ReduceDimensions: disable doublet detection: scrublet returned at least one NA')
+            scrub_res$ntile_doublet <- rep(NA, nrow(scrub_res))
+        }
+
+        num_rows_scrub_res <- nrow(scrub_res)
+        num_cols_scrub_res <- ncol(scrub_res)
+        message('ReduceDimensions: scrub_res dimensions: ', num_rows_scrub_res, ' x ', num_cols_scrub_res)
+        num_rows_coldata_1 <- nrow(cDat_f)
+        num_cols_coldata_1 <- ncol(cDat_f)
+        message('ReduceDimensions: colData dimensions pre-inner_join: ', num_rows_coldata_1, ' x ', num_cols_coldata_1)
+        if(anyDuplicated(scrub_res$cell))
+        {
+            message('ReduceDimensions: error: duplicate cell names in scrub_res')
+            exit(-1)
+        }
+        if(anyDuplicated(colnames(pMat)))
+        {
+            message('ReduceDimensions: error: duplicate cell names in pMat')
+            exit(-1)
+        }
+        cDat_f <- inner_join(cDat_f, scrub_res, by = "cell")
+
+        num_rows_coldata_2 <- nrow(cDat_f)
+        num_cols_coldata_2 <- ncol(cDat_f)
+        message('ReduceDimensions: colData dimensions post-inner_join: ', num_rows_coldata_2, ' x ', num_cols_coldata_2)
+        num_features_doublet_filter <- dim(pMat)[1]
+        num_cells_doublet_filter <- dim(pMat)[2]
+        num_ntile_doublets <- nrow(scrub_res[scrub_res$ntile_doublet=='doublet',])
+        message('ReduceDimensions: top ntile doublet count: ', num_ntile_doublets)
+        message('ReduceDimensions: peak matrix dimensions post-doublet filter: ', num_features_doublet_filter, ' x ', num_cells_doublet_filter)
+    }
+
+    cDat_f <- cDat_f[match(colnames(pMat), cDat_f$cell, nomatch=0),]
+    row.names(cDat_f) <- cDat_f$cell
+
+    num_rows_coldata_3 <- nrow(cDat_f)
+    num_cols_coldata_3 <- ncol(cDat_f)
+    message('ReduceDimensions: colData dimensions end: ', num_rows_coldata_3, ' x ', num_cols_coldata_3)
+
+    return(list(pMat=pMat, cDat_f=cDat_f))
+}
+
+
+######################################################################################
+# make Monocle3 cell_data_set
+######################################################################################
+make_monocle3_cds <- function(matrix_data, num_lsi_dimensions=75, cluster_resolution=1.0e-3, cds_file=NULL)
+{
+    message('ReduceDimensions: new_cell_data_set')
+    cds <- monocle3::new_cell_data_set(matrix_data$pMat, cell_metadata=matrix_data$cDat_f)
+    colData(cds)$n.umi <- Matrix::colSums(exprs(cds))
+    message('ReduceDimensions: detect_genes')
+    cds <- monocle3::detect_genes(cds, min_expr=0)
+    message('ReduceDimensions: preprocess_cds')
+    message('ReduceDimensions: number of LSI dimensions to keep: ', num_lsi_dimensions)
+    cds <- monocle3::preprocess_cds(cds, method='LSI', num_dim=num_lsi_dimensions)
+    message('ReduceDimensions: align_cds')
+    cds <- monocle3::align_cds(cds, preprocess_method='LSI', residual_model_formula_str='~n.umi')
+    message('ReduceDimensions: estimate_size_factors')
+    cds <- monocle3::estimate_size_factors(cds)
+    message('ReduceDimensions: reduce_dimension')
+    cds <- monocle3::reduce_dimension(cds, preprocess_method='Aligned', reduction_method='UMAP')
+    message('ReduceDimensions: cluster_cells')
+    message('ReduceDimensions: cluster resolution: ', sprintf( '%.4e', cluster_resolution))
+    cds <- monocle3::cluster_cells(cds, reduction_method='UMAP', resolution=cluster_resolution)
+    if(!is.null(cds_file))
+    {
+        message('ReduceDimensions: write CDS file: ', cds_file)
+        saveRDS(cds, cds_file)
+    }
+    return(cds)
+}
+
+
+######################################################################################
+# write reduced dimensions to files
+######################################################################################
+write_reduced_dimensions <- function(cds, lsi_coords_file=NULL, umap_coords_file=NULL)
+{
+    if(!is.null(lsi_coords_file))
+    {
+        message('ReduceDimensions: write LSI coordinates file: ', lsi_coords_file)
+        lsi_coords <- reducedDims(cds)$LSI
+        readr::write_delim(data.frame(lsi_coords), file=lsi_coords_file, delim='\t')
+    }
+
+    if(!is.null(umap_coords_file))
+    {
+        message('ReduceDimensions: write UMAP coordinates file: ', umap_coords_file)
+        umap_coords <- reducedDims(cds)$UMAP
+        readr::write_delim(data.frame(umap_coords), file=umap_coords_file, delim='\t')
+    }
+    return(NULL)
+}
+
+
+######################################################################################
+# make UMAP plot
+######################################################################################
+make_umap_plot <- function(cds, umap_plot_file=NULL)
+{
+    if(!is.null(umap_plot_file))
+    {
+        message('ReduceDimensions: write UMAP plot: ', umap_plot_file)
+        plot_umap_png(cds=cds, umap_plot_file)
+    }
+    return(NULL)
+}
+
+
+######################################################################################
+# main
+######################################################################################
 parser <- ArgumentParser(description='Script to perform do TF-IDF-based dim reduction on sci-ATAC-seq data.')
-parser$add_argument('peak_matrix_file', help='MTX file to load.')
-parser$add_argument('promoter_matrix_file', help='MTX file to load with promoter counts.')
-parser$add_argument('--pca_coords', required=TRUE, help='PCA coords.')
-parser$add_argument('--umap_coords', required=TRUE, help='UMAP coords.')
-parser$add_argument('--tsne_coords', required=TRUE, help='TSNE coords.')
-parser$add_argument('--tfidf_matrix', required=TRUE, help='TFIDF matrix.')
-parser$add_argument('--umap_plot', required=TRUE, help='UMAP plot PDF file')
-parser$add_argument('--monocle3_cds', help='Monocle3 CDS')
-parser$add_argument('--svd_dimensions', default=75, type='integer', help='Max dimensions to calculate in SVD step.')
-# parser$add_argument('--include_svd_1', action='store_true', help='By default the first dim is dropped from SVD as others have recommended in literature. Overall not make huge diff. Set this flag to use all dims.')
-parser$add_argument('--sites_per_cell_threshold', default=100, type='integer', help='The min number of sites nonzero in a cell allowed. Cells not meeting this are filtered.')
-parser$add_argument('--remove_top_ntile', type='double', help='Remove the top specified fraction of cells by total count. 0.975 would remove the top 2.5% of cells.')
-parser$add_argument('--fast_tsne_path', help='Path to FAST TSNE executable.')
-parser$add_argument('--regress_depth', action='store_true', help='Regress depth from PC space using limma.')
-parser$add_argument('--exclude_chromosomes', nargs='+', help='List of chromosomes to exclude from dimensionality reduction. Sex chromosomes could be a good example of this.')
+parser$add_argument('--sample_name', required=TRUE, help='Sample name.')
+parser$add_argument('--mat_file', required=TRUE, help='Matrix file name.')
+parser$add_argument('--count_file', required=TRUE, help='Count file name.')
+parser$add_argument('--umi_cutoff', default=100, type='integer', help='UMI cutoff filter.')
+parser$add_argument('--frip_cutoff', default=0.1, type='double', help='FRIP cutoff filter.')
+parser$add_argument('--frit_cutoff', default=0.05, type='double', help='FRIT cutoff filter.')
+parser$add_argument('--black_list_file', default=NULL, help='Path to black list region file.')
+parser$add_argument('--doublet_predict', default=FALSE, action='store_true', help='Predict doublets (flag).')
+parser$add_argument('--doublet_predict_top_ntile', default=0.1, type='double', help='Identify doublets as top ntile of doublet_scores.')
+parser$add_argument('--num_lsi_dimensions', default=75, type='integer', help='Number of LSI components to keep.')
+parser$add_argument('--cluster_resolution', default=1.0e-3, type='double', help='Monocle3 cluster resolution.')
+parser$add_argument('--cds_file', default=NULL, help='CDS file name.')
+parser$add_argument('--lsi_coords_file', default=NULL, help='LSI coordinates file name.')
+parser$add_argument('--umap_coords_file', default=NULL, help='UMAP coordinates file name.')
+parser$add_argument('--umap_plot_file', default=NULL, help='UMAP plot PNG file name.')
 args <- parser$parse_args()
 
-# if (args$include_svd_1) {
-#     svd_start_dim <- 1    
-# } else {
-#     svd_start_dim <- 2
-# }
 
-# Load data
-print('Loading data...')
-promoter_matrix <- load_mtx_file(args$promoter_matrix_file)
-peak_matrix <- load_mtx_file(args$peak_matrix_file)
+matrix_data <- preprocess_peak_matrix(mat_file=args$mat_file,
+                                      count_file=args$count_file,
+                                      sample_name=args$sample_name,
+                                      umi_cutoff=args$umi_cutoff,
+                                      frip_cutoff=args$frip_cutoff,
+                                      frit_cutoff=args$frit_cutoff,
+                                      black_list_file=args$black_list_file,
+                                      doublet_predict=args$doublet_predict,
+                                      doublet_predict_top_ntile=args$doublet_predict_top_ntile,
+                                      cds_file=args$cds_file )
+cds <- make_monocle3_cds(matrix_data, num_lsi_dimensions=args$num_lsi_dimensions, cluster_resolution=args$cluster_resolution, cds_file=args$cds_file)
+write_reduced_dimensions(cds, lsi_coords_file=args$lsi_coords_file, umap_coords_file=args$umap_coords_file)
+make_umap_plot(cds, umap_plot_file=args$umap_plot_file)
 
-# Binarize matrix
-peak_matrix@x[peak_matrix@x > 0] <- 1
-
-# Filter any chromosomes as needed
-if (! is.null(args$exclude_chromosomes)) {
-    invalid_peaks <- grepl(paste(paste0(args$exclude_chromosomes, '_'), collapse="|"), 
-                        rownames(peak_matrix))
-    print('filtered requested chromosomes')
-    print(table(invalid_peaks))
-    peak_matrix <- peak_matrix[!invalid_peaks, ]
-}
-
-valid_cells <- intersect(colnames(promoter_matrix), colnames(peak_matrix))
-
-if (length(valid_cells) == 0) {
-    warning('No cells overlap between peak matrix and promoter_matrix provided.')
-    quit( save='no', status=0 )
-}
-
-peak_matrix <- peak_matrix[, valid_cells]
-promoter_matrix <- promoter_matrix[, valid_cells]
-
-# Filter peak matrix
-print('Filtering input data...')
-peak_matrix <- filter_features(peak_matrix, cells=ncol(peak_matrix) * 0.01)
-peak_matrix <- filter_cells(peak_matrix, args$sites_per_cell_threshold)
-
-## Remove upper outliers if requested
-total_counts <- Matrix::colSums(peak_matrix)
-
-if (!is.null(args$remove_top_ntile)) {
-    upper_threshold <- quantile(total_counts, 1 - args$remove_top_ntile)
-    peak_matrix <- peak_matrix[, total_counts < upper_threshold]
-    total_counts <- total_counts[total_counts < upper_threshold]
-}
-filtered_cells <- colnames(peak_matrix)
-
-if (length(filtered_cells) == 0) {
-    warning('No peak matrix cells remain after filtering.')
-    quit( save='no', status=0 )
-}
-
-promoter_matrix <- promoter_matrix[, colnames(peak_matrix)]
-
-#print('Computing TFIDF...')
-#tf_idf_counts <- tfidf(peak_matrix)
-##
-#print('Computing SVD...')
-#cell_embeddings <- do_svd(tf_idf_counts, dims=args$svd_dimensions)
-#
-#if (args$regress_depth) {
-#    regress_from_pca(cell_embeddings, log10(total_counts))
-#}
-
-print('Creating Monocle3 CDS...')
-dim_file <- get_aux_files(args$promoter_matrix_file)
-
-cell_metadata <- get_cell_metadata(dim_file$cells)
-cell_metadata<-cell_metadata[cell_metadata$V1 %in% filtered_cells,,drop=FALSE]
-
-feature_metadata <- get_feature_metadata(dim_file$features)
-
-cds <- new_cell_data_set(expression_data=promoter_matrix,
-                         cell_metadata=cell_metadata,
-                         gene_metadata=feature_metadata)
-
-print('Pre-processing CDS...')
-cds <- detect_genes(cds)
-cds <- estimate_size_factors(cds)
-cds <- preprocess_cds(cds, method="LSI")
-
-print('Reducing dimensions...')
-cds <- reduce_dimension(cds, reduction_method='tSNE', preprocess_method='LSI')
-cds <- reduce_dimension(cds, reduction_method='UMAP', preprocess_method='LSI')
-
-pca_coords <- reducedDims(cds)$LSI
-tsne_coords <- reducedDims(cds)$tSNE
-umap_coords <- reducedDims(cds)$UMAP
-
-print('Clustering cells...')
-cds <- cluster_cells(cds, reduction_method='UMAP', resolution=1.0e-5)
-
-print('Writing result...')
-#write_mtx_file(tf_idf_counts, args$tfidf_matrix)
-
-readr::write_delim(data.frame(umap_coords), file=args$umap_coords, delim='\t')
-readr::write_delim(data.frame(tsne_coords), file=args$tsne_coords, delim='\t')
-readr::write_delim(data.frame(pca_coords), file=args$pca_coords, delim='\t')
-
-plot_umap_pdf(in_cds=cds, args$umap_plot)
-plot_umap_png(in_cds=cds, args$umap_plot)
-
-if (!is.null(args$monocle3_cds)) {
-    saveRDS(cds, args$monocle3_cds)
-
-}

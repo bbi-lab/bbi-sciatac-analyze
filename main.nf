@@ -293,7 +293,7 @@ params.no_secondary = null
 params.calculate_banding_scores = null
 params.topic_models = null
 params.topics = null
-
+params.doublet_predict = true
 
 /*
 ** Print usage when run with --help parameter.
@@ -1031,7 +1031,8 @@ process makeCountReportsProcess {
 
 makeCountReportsOutChannel
     .into { makeCountReportsOutChannelCopy01;
-            makeCountReportsOutChannelCopy02 }
+            makeCountReportsOutChannelCopy02;
+            makeCountReportsOutChannelCopy03 }
 
 
 /*
@@ -1733,119 +1734,84 @@ makePeakMatrixOutChannel
 	.flatMap { makeReducedDimensionMatrixChannelSetupPeakMatrix( it, sampleSortedNames, sampleGenomeMap ) }
 	.set { makeReducedDimensionMatrixInChannelPeakMatrix }
 	
-makePromoterMatrixOutChannel
-	.toList()
-	.flatMap { makeReducedDimensionMatrixChannelSetupPromoterMatrix( it, sampleSortedNames, sampleGenomeMap ) }
-	.set { makeReducedDimensionMatrixInChannelPromoterMatrix }
+makeCountReportsOutChannelCopy03
+    .toList()
+    .flatMap { makeReducedDimensionMatrixChannelSetupCountReport( it, sampleSortedNames ) }
+    .set { makeReducedDimensionMatrixInChannelCountReport }
 
 process makeReducedDimensionMatrixProcess {
 	cache 'lenient'
     errorStrategy 'ignore'
 
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-pca_coords.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-scrublet_table.csv", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-lsi_coords.txt", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_coords.txt", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-tsne_coords.txt", mode: 'copy'
-//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-tfidf_matrix.*", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.pdf", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.png", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-monocle3_cds.rds", mode: 'copy'
     publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-umap_plot.png", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-scrublet_hist.png", mode: 'copy'
 
 	input:
-	tuple file( "*" ), inPeakMatrixMap from makeReducedDimensionMatrixInChannelPeakMatrix
-	tuple file( "*" ), inPromoterMatrixMap from makeReducedDimensionMatrixInChannelPromoterMatrix
+	tuple file( inPeakFiles ), inPeakMatrixMap from makeReducedDimensionMatrixInChannelPeakMatrix
+    tuple file( inCountReport ), inCountReportMap from makeReducedDimensionMatrixInChannelCountReport
 
 	output:
-	file("*-pca_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
+	file("*-lsi_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
 	file("*-umap_coords.txt") into makeReducedDimensionMatrixOutChannelUmapCoords
-	file("*-tsne_coords.txt") into makeReducedDimensionMatrixOutChannelTsndCoords
-//	file("*-tfidf_matrix.*") into makeReducedDimensionMatrixOutChannelTfidfMatrix
 	file("*-umap_plot.*") into makeReducedDimensionMatrixOutChannelUmapPlot
 	file("*-monocle3_cds.rds") into makeReducedDimensionMatrixOutChannelMonocle3Cds
+    file("*-scrublet_hist.png") into makeReducedDimensionMatrixOutChannelScrubletHist
+    file("*-scrublet_table.csv") into makeReducedDimensionMatrixOutChannelScrubletTable
 
-//  MOTIF_MATRICES_PATH = os.path.join(args.outdir, 'motif_matrices'
-//    promoter_matrices = [os.path.join(MAKE_MATRICES_PATH, '%s.promoter_matrix.mtx.gz') % x for x in all_samples]
-//    topic_models = [os.path.join(TOPIC_MODELS_PATH, '%s.topic_model.rds') % x for x in all_samples]
-//
-//    svd_coords = [os.path.join(REDUCE_DIMENSION_PATH, '%s.svd_coords.txt' % x) for x in all_samples]
-//    umap_coords = [os.path.join(REDUCE_DIMENSION_PATH, '%s.umap_coords.txt' % x) for x in all_samples]
-//    tsne_coords = [os.path.join(REDUCE_DIMENSION_PATH, '%s.tsne_coords.txt' % x) for x in all_samples]
-//    seurat_objects = [os.path.join(REDUCE_DIMENSION_PATH, '%s.seurat_object.rds' % x) for x in all_samples]
-//    tfidf_matrices = [os.path.join(REDUCE_DIMENSION_PATH, '%s.tfidf_matrix.mtx.gz' % x) for x in all_samples]
-//    if not args.no_secondary:
-//        for i,sample in enumerate(all_samples):
-//            # REDUCE DIMENSION WITH LSI
-//            pipeline.add_job(ReduceDimension(peak_matrices[i],
-//                            promoter_matrices[i],
-//                            svd_coords[i],
-//                            umap_coords[i],
-//                            tsne_coords[i],
-//                            tfidf_matrices[i],
-//                            seurat_objects[i]))
-//
-//            # CISTOPIC MODELS IF REQUESTED (TIME CONSUMING)
-//            if args.topic_models:
-//                pipeline.add_job(CisTopicModels(peak_matrices[i], topic_models[i], args.topics))
-//
-//class ReduceDimension:
-//    def __init__(self, peak_matrix, promoter_matrix, svd_coords, umap_coords, tsne_coords, tfidf_matrix, seurat_object=None, svd_dimensions=75, include_svd_1=False, sites_per_cell_threshold=100, remove_top_ntile=0.025):
-//        self.memory = '25G'
-//        self.inputs = [peak_matrix, promoter_matrix]
-//        self.outputs = [svd_coords, umap_coords, tsne_coords, tfidf_matrix]
-//
-//        if seurat_object is not None:
-//            self.outputs = self.outputs + [seurat_object]
-//
-//        self.command = f("""
-//        module load zlib/1.2.6 pigz/latest gcc/8.1.0
-//
-//        Rscript {SCRIPTS_DIR}/reduce_dimensions.R \
-//        {peak_matrix} \
-//        {promoter_matrix} \
-//        --svd_coords {svd_coords} \
-//        --umap_coords {umap_coords} \
-//        --tsne_coords {tsne_coords} \
-//        --tfidf_matrix {tfidf_matrix} \
-//        --svd_dimensions {svd_dimensions} \
-//        --sites_per_cell_threshold {sites_per_cell_threshold} \
-//        --remove_top_ntile {remove_top_ntile} \
-//        --fast_tsne_path {SCRIPTS_DIR}/FIt-SNE/bin/fast_tsne""")
-//
-//        if seurat_object:
-//            self.command = self.command + f(' --seurat_object {seurat_object}')
-//        if include_svd_1:
-//            self.command = self.command + ' --include_svd_1'
-
-//	when:
-	
 	script:
 	"""
-	inPeakMatrix="${inPeakMatrixMap['sample']}-peak_matrix.mtx.gz"
-	inPromoterMatrix="${inPromoterMatrixMap['sample']}-promoter_matrix.mtx.gz"
-	outPcaCoords="${inPeakMatrixMap['sample']}-pca_coords.txt"
-	outUmapCoords="${inPeakMatrixMap['sample']}-umap_coords.txt"
-	outTsneCoords="${inPeakMatrixMap['sample']}-tsne_coords.txt"
-	outTfidfMatrix="${inPeakMatrixMap['sample']}-tfidf_matrix.mtx.gz"
-	outUmapPlot="${inPeakMatrixMap['sample']}-umap_plot.pdf"
-	outMonocle3Cds="${inPeakMatrixMap['sample']}-monocle3_cds.rds"
+    inPeakMatrix="${inPeakMatrixMap['sample']}-peak_matrix.mtx.gz"
+    inSampleName="${inPeakMatrixMap['sample']}"
+	outLsiCoordsFile="${inPeakMatrixMap['sample']}-lsi_coords.txt"
+	outUmapCoordsFile="${inPeakMatrixMap['sample']}-umap_coords.txt"
+	outUmapPlotFile="${inPeakMatrixMap['sample']}-umap_plot.png"
+	outMonocle3CdsFile="${inPeakMatrixMap['sample']}-monocle3_cds.rds"
 	
-	svdDimensions=$task.ext.svd_dimensions
-	removeTopNtile=$task.ext.remove_top_ntile
-	sitesPerCellThreshold=$task.ext.sites_per_cell_threshold
-	
+    umi_cutoff=$task.ext.umi_cutoff
+    frip_cutoff=$task.ext.frip_cutoff
+    frit_cutoff=$task.ext.frit_cutoff
+    num_lsi_dimensions=$task.ext.num_lsi_dimensions
+    cluster_resolution=$task.ext.cluster_resolution
+	doublet_predict_top_ntile=$task.ext.doublet_predict_top_ntile
+
+    doublet_predict=""
+    if [ "${params.doublet_predict}" ]
+    then
+        doublet_predict=" --doublet_predict "
+    fi
+
+    black_list_file=""
+    echo "blacklist_regions: ${inPeakMatrixMap['blacklist_regions']}"
+
+    if [ "${inPeakMatrixMap['blacklist_regions']}" -ne 0 ]
+    then
+        black_list_file=" --black_list_file ${inPeakMatrixMap['blacklist_regions']} "
+    fi
+
+    if [ "${params.doublet_predict}" ]
+    then
+        $script_dir/run_scrublet.py --sample_name=\${inSampleName} --mat_file=\${inPeakMatrix} --umi_cutoff=\$umi_cutoff
+    fi
+
 	Rscript ${script_dir}/reduce_dimensions.R \
-	\${inPeakMatrix} \
-	\${inPromoterMatrix} \
-	--pca_coords \${outPcaCoords} \
-	--umap_coords \${outUmapCoords} \
-	--tsne_coords \${outTsneCoords} \
-	--tfidf_matrix \${outTfidfMatrix} \
-	--umap_plot \${outUmapPlot} \
-	--monocle3_cds \${outMonocle3Cds} \
-	--svd_dimensions \${svdDimensions} \
-	--sites_per_cell_threshold \${sitesPerCellThreshold} \
-	--remove_top_ntile \${removeTopNtile} \
-	--fast_tsne_path ${script_dir}/FIt-SNE/bin/fast_tsne
-	echo "thats all now"
+    --sample_name \${inSampleName} \
+	--mat_file \${inPeakMatrix} \
+    --count_file ${inCountReport} \
+    --umi_cutoff \${umi_cutoff} \
+    --frip_cutoff \${frip_cutoff} \
+    --frit_cutoff \${frit_cutoff} \
+    --doublet_predict_top_ntile \${doublet_predict_top_ntile} \
+    --num_lsi_dimensions \${num_lsi_dimensions} \
+    --cluster_resolution \${cluster_resolution} \
+    --cds_file \${outMonocle3CdsFile} \
+    --lsi_coords_file \${outLsiCoordsFile} \
+    --umap_coords_file \${outUmapCoordsFile} \
+    --umap_plot_file \${outUmapPlotFile} \${doublet_predict} \${black_list_file}
 	"""
 }
 
@@ -1885,7 +1851,6 @@ process experimentDashboardProcess {
 	cp ${script_dir}/skeleton_dash/js/* ${output_dir}/analyze_dash/js
 	cp -r ${script_dir}/skeleton_dash/style ${output_dir}/analyze_dash
 	cp ${script_dir}/skeleton_dash/exp_dash.html ${output_dir}/analyze_dash
-	echo "all done ahhhh"
 	"""
 }
 
@@ -4543,7 +4508,10 @@ def makeReducedDimensionMatrixChannelSetupPeakMatrix( inTuples, sampleSortedName
 	*/
 	outTuples = []
     sampleSortedNames.each { aSample ->
-    	tuple = new Tuple( pathSetMap[aSample], [ 'sample': aSample ] )
+		def aGenomeJsonMap = sampleGenomeMap[aSample]
+        def blacklist_regions_exists = aGenomeJsonMap.containsKey( 'blacklist_regions' )
+        def aBlackListRegion = blacklist_regions_exists ? aGenomeJsonMap['blacklists_regions'] : ''
+    	tuple = new Tuple( pathSetMap[aSample], [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'blacklists_regions': aBlackListRegion ] )
     	outTuples.add( tuple )
     }
 	
@@ -4551,59 +4519,32 @@ def makeReducedDimensionMatrixChannelSetupPeakMatrix( inTuples, sampleSortedName
 }
 
 
-def makeReducedDimensionMatrixChannelSetupPromoterMatrix( inTuples, sampleSortedNames, sampleGenomeMap ) {
+def makeReducedDimensionMatrixChannelSetupCountReport( inPaths, sampleSortedNames ) {
     /*
-    ** Check for expected files.
+    ** Check for expected input paths.
     */
-	def fileName
     def filesExpected = []
     sampleSortedNames.each { aSample ->
-        fileName = aSample + '-promoter_matrix.mtx.gz'
-        filesExpected.add( fileName )
-        fileName = aSample + '-promoter_matrix.columns.txt'
-        filesExpected.add( fileName )
-        fileName = aSample + '-promoter_matrix.rows.txt'
+        def fileName = aSample + '-count_report.txt'
         filesExpected.add( fileName )
     }
-    def filesFound = []
-    inTuples.each { aTuple ->
-    	aTuple.each { aPath ->
-    		def aFile = aPath.getFileName().toString()
-    		filesFound.add( aFile )
-    	}
-    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
     filesExpected.each { aFile ->
-		if( !( aFile in filesFound ) ) {
-			printErr( "Error: missing expected file \'${aFile}\' in channel" )
-			System.exit( -1 )
-		}
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
     }
-    
-	/*
-	** Gather paths by sample.
-	*/
-    def pathSetMap = [:]
-	sampleSortedNames.each { aSample ->
-		pathSetMap[aSample] = []
-    }
-    inTuples.each { aTuple ->
-    	aTuple.each { aPath ->
-			def aFile = aPath.getFileName().toString()
-			def aSample = aPath.getFileName().toString().split( '-' )[0]
-			pathSetMap[aSample].add( aPath )    		
-    	}
-   	}
-   	
-	/*
-	** Prepare output tuples.
-	*/
-	outTuples = []
+
+    def outTuples = []
     sampleSortedNames.each { aSample ->
-    	tuple = new Tuple( pathSetMap[aSample], [ 'sample': aSample ] )
-    	outTuples.add( tuple )
+        def inCountReport = aSample + '-count_report.txt'
+        def tuple = new Tuple( fileMap[inCountReport], [ 'sample': aSample ] )
+        outTuples.add( tuple )
     }
-	
-	return( outTuples )
+
+    return( outTuples )
 }
 
 
