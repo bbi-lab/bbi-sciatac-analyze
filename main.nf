@@ -294,6 +294,7 @@ params.calculate_banding_scores = null
 params.topic_models = null
 params.topics = null
 params.doublet_predict = true
+params.filter_blacklist_regions = true
 
 /*
 ** Print usage when run with --help parameter.
@@ -1207,7 +1208,6 @@ process makePeakMatrixProcess {
     --intervals ${inMergedPeaks} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output \${outPeakMatrix}
-    echo "foo" > /dev/null
 	"""
 }
 
@@ -1430,9 +1430,12 @@ process summarizeCellCallsProcess {
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
         --plot \${outSummaryPlot} \
         --output_stats \${outSummaryStats} \${barnyardParams}
-    echo 'all done for now and all aa'
     """
 }
+
+summarizeCellCallsOutChannelCallCellsSummaryStats
+    .into { summarizeCellCallsOutChannelCallCellsSummaryStatsCopy01;
+            summarizeCellCallsOutChannelCallCellsSummaryStatsCopy02 }
 
 
 /*
@@ -1727,6 +1730,10 @@ process makeMotifMatrixProcess {
 **      directive
 **
 **         "errorStrategy 'ignore'"
+**   o  reduce_dimensions.R should exit with 0 status
+**   o  scrublet may exit with non-zero status so errorStrategy is 'ignore'
+**   o  create empty files in case the programs fail to create the files
+**      so that the process block publishes log files
 */
 
 makePeakMatrixOutChannel
@@ -1746,8 +1753,10 @@ process makeReducedDimensionMatrixProcess {
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-scrublet_table.csv", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-lsi_coords.txt", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_coords.txt", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.png", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.*", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-monocle3_cds.rds", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-blacklist_regions_file.log", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-reduce_dimensions.log", mode: 'copy'
     publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-umap_plot.png", mode: 'copy'
     publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-scrublet_hist.png", mode: 'copy'
 
@@ -1756,22 +1765,28 @@ process makeReducedDimensionMatrixProcess {
     tuple file( inCountReport ), inCountReportMap from makeReducedDimensionMatrixInChannelCountReport
 
 	output:
-	file("*-lsi_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
-	file("*-umap_coords.txt") into makeReducedDimensionMatrixOutChannelUmapCoords
-	file("*-umap_plot.*") into makeReducedDimensionMatrixOutChannelUmapPlot
-	file("*-monocle3_cds.rds") into makeReducedDimensionMatrixOutChannelMonocle3Cds
+    file("*-lsi_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
+    file("*-umap_coords.txt") into makeReducedDimensionMatrixOutChannelUmapCoords
+    file("*-umap_plot.*") into makeReducedDimensionMatrixOutChannelUmapPlot
+    file("*-monocle3_cds.rds") into makeReducedDimensionMatrixOutChannelMonocle3Cds
     file("*-scrublet_hist.png") into makeReducedDimensionMatrixOutChannelScrubletHist
     file("*-scrublet_table.csv") into makeReducedDimensionMatrixOutChannelScrubletTable
+    file("*-blacklist_regions_file.log") into makeReducedDimensionMatrixOutChannelBlackListRegionsFile
+    file("*-reduce_dimensions.log") into makeReducedDimensionMatrixOutChannelReducedDimensionsLogFile
 
 	script:
 	"""
     inPeakMatrix="${inPeakMatrixMap['sample']}-peak_matrix.mtx.gz"
     inSampleName="${inPeakMatrixMap['sample']}"
+
+   	 outScrubletHistFile="${inPeakMatrixMap['sample']}-scrublet_hist.png"
+    outScrubletTableFile="${inPeakMatrixMap['sample']}-scrublet_table.csv"
 	outLsiCoordsFile="${inPeakMatrixMap['sample']}-lsi_coords.txt"
 	outUmapCoordsFile="${inPeakMatrixMap['sample']}-umap_coords.txt"
-	outUmapPlotFile="${inPeakMatrixMap['sample']}-umap_plot.png"
+	outUmapPlotFile="${inPeakMatrixMap['sample']}-umap_plot"
 	outMonocle3CdsFile="${inPeakMatrixMap['sample']}-monocle3_cds.rds"
-	
+    outBlackListRegionsFile="${inPeakMatrixMap['sample']}-blacklist_regions_file.log"
+
     umi_cutoff=$task.ext.umi_cutoff
     frip_cutoff=$task.ext.frip_cutoff
     frit_cutoff=$task.ext.frit_cutoff
@@ -1788,9 +1803,12 @@ process makeReducedDimensionMatrixProcess {
     black_list_file=""
     echo "blacklist_regions: ${inPeakMatrixMap['blacklist_regions']}"
 
-    if [ "${inPeakMatrixMap['blacklist_regions']}" -ne 0 ]
+    if [[ "${params.filter_blacklist_regions}" == "true" && "${inPeakMatrixMap['blacklist_regions']}" != "" ]]
     then
         black_list_file=" --black_list_file ${inPeakMatrixMap['blacklist_regions']} "
+        echo "blacklist_region file: ${inPeakMatrixMap['blacklist_regions']}" > \${outBlackListRegionsFile}
+    else
+      echo "blacklist_region file: none" > \${outBlackListRegionsFile}
     fi
 
     if [ "${params.doublet_predict}" ]
@@ -1812,6 +1830,41 @@ process makeReducedDimensionMatrixProcess {
     --lsi_coords_file \${outLsiCoordsFile} \
     --umap_coords_file \${outUmapCoordsFile} \
     --umap_plot_file \${outUmapPlotFile} \${doublet_predict} \${black_list_file}
+
+    if [ ! -e "\${outScrubletHistFile}" ]
+    then
+      touch "\${outScrubletHistFile}"
+    fi
+
+    if [ ! -e "\${outScrubletTableFile}" ]
+    then
+      touch "\${outScrubletTableFile}"
+    fi
+
+    if [ ! -e "\${outLsiCoordsFile}" ]
+    then
+      touch "\${outLsiCoordsFile}"
+    fi
+
+    if [ ! -e "\${outUmapCoordsFile}" ]
+    then
+      touch "\${outUmapCoordsFile}"
+    fi
+
+    if [ ! -e "\${outUmapPlotFile}.png" ]
+    then
+      touch "\${outUmapPlotFile}.null"
+    fi
+
+    if [ ! -e "\${outMonocle3CdsFile}" ]
+    then
+      touch "\${outMonocle3CdsFile}"
+    fi
+
+    if [ ! -e "\${outBlackListRegionsFile}" ]
+    then
+      touch "\${outBlackListRegionsFile}"
+    fi
 	"""
 }
 
@@ -1822,7 +1875,7 @@ process makeReducedDimensionMatrixProcess {
 ** ================================================================================
 */
 
-summarizeCellCallsOutChannelCallCellsSummaryStats
+summarizeCellCallsOutChannelCallCellsSummaryStatsCopy01
 	.toList()
 	.map { experimentDashboardProcessChannelSetup( it, sampleSortedNames, sampleGenomeMap ) }
 	.set { experimentDashboardProcessInChannel }
@@ -1831,20 +1884,17 @@ process experimentDashboardProcess {
 	cache 'lenient'
     errorStrategy onError
 	publishDir path: "${output_dir}/analyze_dash/js", pattern: "run_data.js", mode: 'copy'
-    publishDir path: "${output_dir}/analyze_out", pattern: "merged.called_cells_summary.pdf", mode: 'copy'
 	
 	input:
 	file( "*") from experimentDashboardProcessInChannel
 
 	output:
 	file( "run_data.js" ) into experimentDashboardProcessOutChannelRunData
-	file( "merged.called_cells_summary.pdf" ) into experimentDashboardProcessOutChannelMergedPdf
 
 	script:
 	"""
 	mkdir -p ${output_dir}/analyze_dash/js
 	${script_dir}/make_run_data.py -i ${output_dir}/analyze_out/args.json -o run_data.js
-    ${script_dir}/merge_summary_plots.py -i ${output_dir}/analyze_out/args.json -o merged.called_cells_summary.pdf
 	
 	mkdir -p ${output_dir}/analyze_dash/js ${output_dir}/analyze_dash/img
 	cp ${script_dir}/skeleton_dash/img/*.png ${output_dir}/analyze_dash/img
@@ -1854,6 +1904,44 @@ process experimentDashboardProcess {
 	"""
 }
 
+
+/*
+** ================================================================================
+** Make merged (sample) plot files.
+** ================================================================================
+*/
+
+summarizeCellCallsOutChannelCallCellsSummaryStatsCopy02
+    .toList()
+    .map { makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { makeMergedPlotFilesProcessInChannelCallCellsSummaryStats }
+
+makeReducedDimensionMatrixOutChannelUmapPlot
+    .toList()
+    .map { makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( it, sampleSortedNames, sampleGenomeMap ) }
+    .set { makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots }
+
+process makeMergedPlotFilesProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.called_cells_summary.pdf", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.umap_plots.pdf", mode: 'copy'
+
+    input:
+    file( "*") from makeMergedPlotFilesProcessInChannelCallCellsSummaryStats
+    file( "*-umap_plots.pdf") from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
+
+    output:
+    file( "merged.called_cells_summary.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummary
+    file( "merged.umap_plots.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedUmapPlots
+
+    script:
+    """
+    mkdir -p ${output_dir}/analyze_out/merged_plots
+    ${script_dir}/merge_summary_plots.py -i ${output_dir}/analyze_out/args.json -o merged.called_cells_summary.pdf
+    ${script_dir}/merge_umap_plots.py -i ${output_dir}/analyze_out/args.json -o merged.umap_plots.pdf
+    """
+}
 
 /*
 ** Template
@@ -4510,8 +4598,8 @@ def makeReducedDimensionMatrixChannelSetupPeakMatrix( inTuples, sampleSortedName
     sampleSortedNames.each { aSample ->
 		def aGenomeJsonMap = sampleGenomeMap[aSample]
         def blacklist_regions_exists = aGenomeJsonMap.containsKey( 'blacklist_regions' )
-        def aBlackListRegion = blacklist_regions_exists ? aGenomeJsonMap['blacklists_regions'] : ''
-    	tuple = new Tuple( pathSetMap[aSample], [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'blacklists_regions': aBlackListRegion ] )
+        def aBlackListRegion = blacklist_regions_exists ? aGenomeJsonMap['blacklist_regions'] : ''
+    	tuple = new Tuple( pathSetMap[aSample], [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'blacklist_regions': aBlackListRegion ] )
     	outTuples.add( tuple )
     }
 	
@@ -4550,6 +4638,16 @@ def makeReducedDimensionMatrixChannelSetupCountReport( inPaths, sampleSortedName
 
 def experimentDashboardProcessChannelSetup( inPaths, sampleSortedNames, sampleGenomeMap ) {
 	return( inPaths )
+}
+
+
+def makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    return( inPaths )
+}
+
+
+def makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( inPaths, sampleSortedNames, sampleGenomeMap ) {
+    return( inPaths )
 }
 
 

@@ -8,6 +8,24 @@ suppressMessages(library(argparse))
 
 
 ########################################
+# Message output.
+########################################
+message_log <- function(msg, ...) {
+    message(msg, ...)
+    cat(paste(msg, ...), '\n')
+}
+
+
+########################################
+# Quit message logging and success code.
+########################################
+quit_log <- function( msg, ...) {
+    message_log(msg, ...)
+    quit(save='no', status=0, runLast=TRUE)
+}
+
+
+########################################
 # I/O.
 ########################################
 .get_aux_files <- function(mtx_file) {
@@ -26,11 +44,11 @@ load_mtx_file <- function(mtx_file) {
     dim_files <- .get_aux_files(mtx_file)
     
     if (! file.exists(dim_files$features)) {
-      stop(paste0(dim_files$features, ' file not found when loading ', mtx_file))
+      quit_log(paste0(dim_files$features, ' file not found when loading ', mtx_file))
     }
     
     if (! file.exists(dim_files$cells)) {
-      stop(paste0(dim_files$cells, ' file not found when loading ', mtx_file))
+      quit_log(paste0(dim_files$cells, ' file not found when loading ', mtx_file))
     }
     
     rownames(mat) <- read.delim(dim_files$features, header=FALSE)$V1
@@ -81,7 +99,7 @@ filter_regions <- function(features, blacklist_df) {
     column_names <- c('chrom', 'start', 'end')
   
     if (! all(column_names %in% colnames(blacklist_df))) {
-      stop('chrom, start, and end must be columns in blacklist df.')
+      quit_log('chrom, start, and end must be columns in blacklist df.')
     }
   
     features_df <- as.data.frame(str_split_fixed(features, '_', n=3))
@@ -120,7 +138,7 @@ test_peak_matrix <- function( peak_matrix, min_feature, min_cell )
     }
     if(length(bad_matrix_mesg>0))
     {
-        stop('ReduceDimensions: error:\n', bad_matrix_mesg, '  Stopping.\n')
+        quit_log('ReduceDimensions: error:\n', bad_matrix_mesg, '  Stopping.\n')
     }
 }
 
@@ -156,7 +174,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     min_feature <- 10
     min_cell <- 10
 
-    message('ReduceDimensions: sample: ', sample_name)
+    message_log('ReduceDimensions: sample: ', sample_name)
 
     # load peak matrix for sample.
     pMat <- load_mtx_file(mat_file)
@@ -166,7 +184,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
 
     num_features_input <- dim(pMat)[1]
     num_cells_input <- dim(pMat)[2]
-    message('ReduceDimensions: peak matrix dimensions: ', num_features_input, ' x ', num_cells_input)
+    message_log('ReduceDimensions: peak matrix dimensions: ', num_features_input, ' x ', num_cells_input)
 
     test_peak_matrix(pMat, min_feature, min_cell)
 
@@ -185,16 +203,16 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
   
     # filter cells based on unique reads, FRIP and FRIT  (cutoffs set above)
 
-    message('ReduceDimensions: UMI cutoff: ', umi_cutoff)
-    message('ReduceDimensions: FRIP cutoff: ', frip_cutoff)
-    message('ReduceDimensions: FRIT cutoff: ', frit_cutoff)
+    message_log('ReduceDimensions: UMI cutoff: ', umi_cutoff)
+    message_log('ReduceDimensions: FRIP cutoff: ', frip_cutoff)
+    message_log('ReduceDimensions: FRIT cutoff: ', frit_cutoff)
 
     qc_cells <- filter(cDat_f, umi_binarized > umi_cutoff, FRIP > frip_cutoff, FRIT > frit_cutoff) %>% select(cell)
     pMat <- pMat[,colnames(pMat) %in% qc_cells$cell]
 
     num_features_cell_filter <- dim(pMat)[1]
     num_cells_cell_filter <- dim(pMat)[2]
-    message('ReduceDimensions: peak matrix dimensions post-cell filter: ', num_features_cell_filter, ' x ', num_cells_cell_filter)
+    message_log('ReduceDimensions: peak matrix dimensions post-cell filter: ', num_features_cell_filter, ' x ', num_cells_cell_filter)
 
     test_peak_matrix(pMat, min_feature, min_cell)
 
@@ -206,7 +224,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
 
     num_features_feature_filter <- dim(pMat)[1]
     num_cells_feature_filter <- dim(pMat)[2]
-    message('ReduceDimensions: peak matrix dimensions post-feature filter: ', num_features_feature_filter, ' x ', num_cells_feature_filter)
+    message_log('ReduceDimensions: peak matrix dimensions post-feature filter: ', num_features_feature_filter, ' x ', num_cells_feature_filter)
   
     test_peak_matrix(pMat, min_feature, min_cell)
 
@@ -214,14 +232,14 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     # load blacklist
     if(!is.null(black_list_file))
     {
-        message('ReduceDimensions: black list region file: ', black_list_file)
+        message_log('ReduceDimensions: black list region file: ', black_list_file)
         blacklist <- read.table(black_list_file, sep='\t')
         colnames(blacklist) <- c('chrom', 'start', 'end')
         features_f <- filter_regions(features=row.names(pMat), blacklist_df=blacklist)
         pMat <- pMat[row.names(pMat) %in% features_f,]
         num_features_feature_black_list_filter <- dim(pMat)[1]
         num_cells_feature_black_list_filter <- dim(pMat)[2]
-        message('ReduceDimensions: peak matrix dimensions post-black-list filter: ', num_features_feature_black_list_filter, ' x ', num_cells_feature_black_list_filter)
+        message_log('ReduceDimensions: peak matrix dimensions post-black-list filter: ', num_features_feature_black_list_filter, ' x ', num_cells_feature_black_list_filter)
 
     }
 
@@ -238,7 +256,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
 
     num_features_cell_filter2 <- dim(pMat)[1]
     num_cells_cell_filter2 <- dim(pMat)[2]
-    message('ReduceDimensions: peak matrix dimensions secondary post-cell filter: ', num_features_cell_filter2, ' x ', num_cells_cell_filter2)
+    message_log('ReduceDimensions: peak matrix dimensions secondary post-cell filter: ', num_features_cell_filter2, ' x ', num_cells_cell_filter2)
   
     test_peak_matrix(pMat, min_feature, min_cell)
 
@@ -247,12 +265,12 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     ######################################################################################
     if(doublet_predict)
     {
-        message('ReduceDimensions: doublet top ntile cutoff: ', sprintf( '%.4f', doublet_predict_top_ntile))
+        message_log('ReduceDimensions: doublet top ntile cutoff: ', sprintf( '%.4f', doublet_predict_top_ntile))
         # this block calculates the doublet score and adds a column to the colData
         # it does not filter out doublets
-        message('ReduceDimensions: read scrublet data')
+        message_log('ReduceDimensions: read scrublet data')
         scrub_res <- read.table(paste0(sample_name, '-scrublet_table.csv'),sep=',')
-        message('ReduceDimensions: read scrublet column names')
+        message_log('ReduceDimensions: read scrublet column names')
         cell_names <- read.table(paste0(sample_name, '-scrublet_columns.txt'),header=FALSE)
         scrub_res <- cbind(cell_names, scrub_res )
         colnames(scrub_res) <- c('cell', 'doublet_score', 'predicted_doublet')
@@ -260,44 +278,44 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
         if(!anyNA(scrub_res$doublet_score) && !anyNA(scrub_res$predicted_doublet))
         {
             # mark top n-tile of cells with the highest doublet scores
-            message('ReduceDimensions: mark top ntile doublets')
+            message_log('ReduceDimensions: mark top ntile doublets')
             threshold <- quantile(scrub_res$doublet_score, 1.0 - doublet_predict_top_ntile)
-            message('ReduceDimensions: doublet top ntile score threshold: ', sprintf('%.4f', threshold))
+            message_log('ReduceDimensions: doublet top ntile score threshold: ', sprintf('%.4f', threshold))
             scrub_res$ntile_doublet <- sapply(scrub_res$doublet_score, function(x){
               ifelse(x < threshold, "singlet", "doublet")})
         }
         else
         {
-            message('ReduceDimensions: disable doublet detection: scrublet returned at least one NA')
+            message_log('ReduceDimensions: disable doublet detection: scrublet returned at least one NA')
             scrub_res$ntile_doublet <- rep(NA, nrow(scrub_res))
         }
 
         num_rows_scrub_res <- nrow(scrub_res)
         num_cols_scrub_res <- ncol(scrub_res)
-        message('ReduceDimensions: scrub_res dimensions: ', num_rows_scrub_res, ' x ', num_cols_scrub_res)
+        message_log('ReduceDimensions: scrub_res dimensions: ', num_rows_scrub_res, ' x ', num_cols_scrub_res)
         num_rows_coldata_1 <- nrow(cDat_f)
         num_cols_coldata_1 <- ncol(cDat_f)
-        message('ReduceDimensions: colData dimensions pre-inner_join: ', num_rows_coldata_1, ' x ', num_cols_coldata_1)
+        message_log('ReduceDimensions: colData dimensions pre-inner_join: ', num_rows_coldata_1, ' x ', num_cols_coldata_1)
         if(anyDuplicated(scrub_res$cell))
         {
-            message('ReduceDimensions: error: duplicate cell names in scrub_res')
+            message_log('ReduceDimensions: error: duplicate cell names in scrub_res')
             exit(-1)
         }
         if(anyDuplicated(colnames(pMat)))
         {
-            message('ReduceDimensions: error: duplicate cell names in pMat')
+            message_log('ReduceDimensions: error: duplicate cell names in pMat')
             exit(-1)
         }
         cDat_f <- inner_join(cDat_f, scrub_res, by = "cell")
 
         num_rows_coldata_2 <- nrow(cDat_f)
         num_cols_coldata_2 <- ncol(cDat_f)
-        message('ReduceDimensions: colData dimensions post-inner_join: ', num_rows_coldata_2, ' x ', num_cols_coldata_2)
+        message_log('ReduceDimensions: colData dimensions post-inner_join: ', num_rows_coldata_2, ' x ', num_cols_coldata_2)
         num_features_doublet_filter <- dim(pMat)[1]
         num_cells_doublet_filter <- dim(pMat)[2]
         num_ntile_doublets <- nrow(scrub_res[scrub_res$ntile_doublet=='doublet',])
-        message('ReduceDimensions: top ntile doublet count: ', num_ntile_doublets)
-        message('ReduceDimensions: peak matrix dimensions post-doublet filter: ', num_features_doublet_filter, ' x ', num_cells_doublet_filter)
+        message_log('ReduceDimensions: top ntile doublet count: ', num_ntile_doublets)
+        message_log('ReduceDimensions: peak matrix dimensions post-doublet filter: ', num_features_doublet_filter, ' x ', num_cells_doublet_filter)
     }
 
     cDat_f <- cDat_f[match(colnames(pMat), cDat_f$cell, nomatch=0),]
@@ -305,7 +323,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
 
     num_rows_coldata_3 <- nrow(cDat_f)
     num_cols_coldata_3 <- ncol(cDat_f)
-    message('ReduceDimensions: colData dimensions end: ', num_rows_coldata_3, ' x ', num_cols_coldata_3)
+    message_log('ReduceDimensions: colData dimensions end: ', num_rows_coldata_3, ' x ', num_cols_coldata_3)
 
     return(list(pMat=pMat, cDat_f=cDat_f))
 }
@@ -316,26 +334,26 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
 ######################################################################################
 make_monocle3_cds <- function(matrix_data, num_lsi_dimensions=75, cluster_resolution=1.0e-3, cds_file=NULL)
 {
-    message('ReduceDimensions: new_cell_data_set')
+    message_log('ReduceDimensions: new_cell_data_set')
     cds <- monocle3::new_cell_data_set(matrix_data$pMat, cell_metadata=matrix_data$cDat_f)
     colData(cds)$n.umi <- Matrix::colSums(exprs(cds))
-    message('ReduceDimensions: detect_genes')
+    message_log('ReduceDimensions: detect_genes')
     cds <- monocle3::detect_genes(cds, min_expr=0)
-    message('ReduceDimensions: preprocess_cds')
-    message('ReduceDimensions: number of LSI dimensions to keep: ', num_lsi_dimensions)
+    message_log('ReduceDimensions: preprocess_cds')
+    message_log('ReduceDimensions: number of LSI dimensions to keep: ', num_lsi_dimensions)
     cds <- monocle3::preprocess_cds(cds, method='LSI', num_dim=num_lsi_dimensions)
-    message('ReduceDimensions: align_cds')
+    message_log('ReduceDimensions: align_cds')
     cds <- monocle3::align_cds(cds, preprocess_method='LSI', residual_model_formula_str='~n.umi')
-    message('ReduceDimensions: estimate_size_factors')
+    message_log('ReduceDimensions: estimate_size_factors')
     cds <- monocle3::estimate_size_factors(cds)
-    message('ReduceDimensions: reduce_dimension')
+    message_log('ReduceDimensions: reduce_dimension')
     cds <- monocle3::reduce_dimension(cds, preprocess_method='Aligned', reduction_method='UMAP')
-    message('ReduceDimensions: cluster_cells')
-    message('ReduceDimensions: cluster resolution: ', sprintf( '%.4e', cluster_resolution))
+    message_log('ReduceDimensions: cluster_cells')
+    message_log('ReduceDimensions: cluster resolution: ', sprintf( '%.4e', cluster_resolution))
     cds <- monocle3::cluster_cells(cds, reduction_method='UMAP', resolution=cluster_resolution)
     if(!is.null(cds_file))
     {
-        message('ReduceDimensions: write CDS file: ', cds_file)
+        message_log('ReduceDimensions: write CDS file: ', cds_file)
         saveRDS(cds, cds_file)
     }
     return(cds)
@@ -349,14 +367,14 @@ write_reduced_dimensions <- function(cds, lsi_coords_file=NULL, umap_coords_file
 {
     if(!is.null(lsi_coords_file))
     {
-        message('ReduceDimensions: write LSI coordinates file: ', lsi_coords_file)
+        message_log('ReduceDimensions: write LSI coordinates file: ', lsi_coords_file)
         lsi_coords <- reducedDims(cds)$LSI
         readr::write_delim(data.frame(lsi_coords), file=lsi_coords_file, delim='\t')
     }
 
     if(!is.null(umap_coords_file))
     {
-        message('ReduceDimensions: write UMAP coordinates file: ', umap_coords_file)
+        message_log('ReduceDimensions: write UMAP coordinates file: ', umap_coords_file)
         umap_coords <- reducedDims(cds)$UMAP
         readr::write_delim(data.frame(umap_coords), file=umap_coords_file, delim='\t')
     }
@@ -371,8 +389,13 @@ make_umap_plot <- function(cds, umap_plot_file=NULL)
 {
     if(!is.null(umap_plot_file))
     {
-        message('ReduceDimensions: write UMAP plot: ', umap_plot_file)
+        message_log('ReduceDimensions: write UMAP plot: ', umap_plot_file)
         plot_umap_png(cds=cds, umap_plot_file)
+    }
+    if(!is.null(umap_plot_file))
+    {
+        message_log('ReduceDimensions: write UMAP plot: ', umap_plot_file)
+        plot_umap_pdf(cds=cds, umap_plot_file)
     }
     return(NULL)
 }
@@ -396,9 +419,12 @@ parser$add_argument('--cluster_resolution', default=1.0e-3, type='double', help=
 parser$add_argument('--cds_file', default=NULL, help='CDS file name.')
 parser$add_argument('--lsi_coords_file', default=NULL, help='LSI coordinates file name.')
 parser$add_argument('--umap_coords_file', default=NULL, help='UMAP coordinates file name.')
-parser$add_argument('--umap_plot_file', default=NULL, help='UMAP plot PNG file name.')
+parser$add_argument('--umap_plot_file', default=NULL, help='UMAP plot PNG and PDF file name root.')
 args <- parser$parse_args()
 
+
+log_file <-file(paste0(args$sample_name, '-reduce_dimensions.log'), open='at')
+sink(log_file, type='message')
 
 matrix_data <- preprocess_peak_matrix(mat_file=args$mat_file,
                                       count_file=args$count_file,

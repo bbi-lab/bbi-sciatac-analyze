@@ -8,7 +8,7 @@
 
 
 #
-# Merge summary PDF plot files.
+# Merge UMAP PDF plot files.
 #
 
 import sys
@@ -60,13 +60,13 @@ def get_samples( args_json ):
     return( samples )
 
 
-def merge_summary_pdfs( output_filename, analyze_out, samples ):
+def merge_umap_pdfs( output_filename, analyze_out, samples ):
     input_filename_list = []
     samples.sort(key=natural_sort_key)
     for sample in samples:
-        filepath = '%s/%s/summarize_cell_calls/%s-called_cells_summary.pdf' % ( analyze_out, sample, sample )
+        filepath = '%s/%s/reduce_dimension/%s-umap_plot.pdf' % ( analyze_out, sample, sample )
         if( os.path.exists( filepath ) and os.access(filepath, os.R_OK ) ):
-            input_filename_list.append( '%s/%s/summarize_cell_calls/%s-called_cells_summary.pdf' % ( analyze_out, sample, sample ) )
+            input_filename_list.append( '%s/%s/reduce_dimension/%s-umap_plot.pdf' % ( analyze_out, sample, sample ) )
     command = 'pdfunite ' + ' '.join( input_filename_list ) + ' ' + output_filename
     os.system( command )
     return( 0 )
@@ -74,7 +74,7 @@ def merge_summary_pdfs( output_filename, analyze_out, samples ):
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='A program to summary PDF files.')
+    parser = argparse.ArgumentParser(description='A program to UMAP PDF plot files.')
     parser.add_argument('-i', '--input_file', required=True, help='Path to args.json input file in sci-ATAC analyze output directory.')
     parser.add_argument('-o', '--output_file', required=True, help='Name of output file.')
     args = parser.parse_args()
@@ -82,5 +82,5 @@ if __name__ == '__main__':
     args_json = read_args_json( open( args.input_file ) )
     samples = get_samples( args_json )
     
-    merge_summary_pdfs( args.output_file, os.path.dirname( args.input_file ), samples )
+    merge_umap_pdfs( args.output_file, os.path.dirname( args.input_file ), samples )
 

@@ -53,7 +53,6 @@ def get_sample_stats( args_json ):
     analyze_dir = args_json['analyze_dir']
     sample_stats = {}
     for sample in samples:
-#         sample_summary_file = "%s/%s/summarize_cell_calls/%s-called_cells_summary.stats.txt" % ( analyze_dir, sample, sample )
         sample_summary_file = "%s-called_cells_summary.stats.txt" % ( sample )
         read_tsv = csv.DictReader( open( sample_summary_file ), delimiter='\t' )
         row = next(read_tsv)
@@ -89,7 +88,6 @@ def get_collision_rate( args_json ):
     analyze_dir = args_json['analyze_dir']
     sample_stats = {}
     for sample in samples:
-#        sample_summary_file = "%s/%s/summarize_cell_calls/%s-called_cells_summary.stats.txt" % ( analyze_dir, sample, sample )
         sample_summary_file = "%s-called_cells_summary.stats.txt" % ( sample )
         read_tsv = csv.DictReader( open( sample_summary_file ), delimiter='\t' )
         row = next(read_tsv)
@@ -104,10 +102,14 @@ def make_run_data_dict( args_json ):
 
 
 def write_run_data( out_file, run_name, samples, barnyard_collision_rate, sample_stats ):
+    if( barnyard_collision_rate != None ):
+      barn_collision = '%.1f%%' % ( float( barnyard_collision_rate ) * 100 )
+    else:
+      barn_collision = 'NA'
     run_data_dict = { 'run_name'    : run_name,
                       'cell_counts' : [ 0, 0 ],
                       'sample_list' : samples,
-                      'barn_collision' : '%.1f%%' % ( float( barnyard_collision_rate ) * 100 ),
+                      'barn_collision' : barn_collision,
                       'sample_stats'   : sample_stats }
     json_object = json.dumps( run_data_dict, indent = 2 )
     out_file.write( 'const run_data =\n' )
