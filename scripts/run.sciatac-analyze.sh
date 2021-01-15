@@ -36,25 +36,25 @@ WORK_DIR="$ANALYZE_DIR/work"
 # Nextflow writes some informative processing information
 # in the analyze output directory.
 #
-REPORT_FIL="$ANALYZE_DIR/reports/analyze.report.html"
-TRACE_FIL="$ANALYZE_DIR/reports/analyze.trace.tsv"
-TIMELINE_FIL="$ANALYZE_DIR/reports/analyze.timeline.html"
+REPORT_FIL="$ANALYZE_DIR/run_reports/analyze.report.html"
+TRACE_FIL="$ANALYZE_DIR/run_reports/analyze.trace.tsv"
+TIMELINE_FIL="$ANALYZE_DIR/run_reports/analyze.timeline.html"
 
 #
 # Nextflow run parameters.
 #
 PARS="-c $CONFIG_FILE -w $WORK_DIR -with-report $REPORT_FIL -with-trace $TRACE_FIL -with-timeline $TIMELINE_FIL -resume"
 
-mkdir -p $ANALYZE_DIR/reports
+mkdir -p $ANALYZE_DIR/run_reports
 pushd $ANALYZE_DIR
 
-date > reports/run_start.${NOW}.txt
+date > run_reports/run_start.${NOW}.txt
 
 #
 # Run Nextflow sci-ATAC analyze pipeline.
 #
 $NEXTFLOW run $NF_ANALYZE $PARS
 
-date > reports/run_finish.${NOW}.txt
+date > run_reports/run_finish.${NOW}.txt
 
 popd
