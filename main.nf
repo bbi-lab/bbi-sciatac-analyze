@@ -360,6 +360,11 @@ def argsJson = readArgsJson( demux_dir + "/args.json" )
 def sampleLaneJsonMap = getSamplesJson( argsJson )
 
 /*
+** Get a map of merged peak groups keyed by sample name.
+*/
+def samplePeakGroupMap = getSamplePeakGroupMap( argsJson )
+
+/*
 ** Check that args.samples, if given, are in json file and
 ** return a map of sample lanes to process.
 */
@@ -742,7 +747,7 @@ callPeaksOutChannelNarrowPeak
 */
 callPeaksOutChannelNarrowPeakCopy01
 	.toList()
-	.flatMap { makePeakFileChannelSetup( it, sampleSortedNames ) }
+	.flatMap { makePeakFileChannelSetup( it, sampleSortedNames, samplePeakGroupMap ) }
 	.set { mergePeaksInChannel }
 
 
@@ -753,24 +758,39 @@ process mergePeaksProcess {
 //    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
 
 	input:
-	set file( inBed ), mergePeaksMap from mergePeaksInChannel
+
+	set file( 'inBeds' ), mergePeaksMap from mergePeaksInChannel
 			
 	output:
 	file( "*-merged_peaks.bed" ) into mergePeaksOutChannel
 			
 	script:
 	"""
-	outBed="${mergePeaksMap['sample']}-merged_peaks.bed"
+	outGroupBed="${mergePeaksMap['group']}-group_merged_peaks.bed"
 	
-    zcat ${inBed} \
+    zcat inBeds* \
         | cut -f1-3 \
         | sort -k1,1V -k2,2n -k3,3n \
         | bedtools merge -i - \
-        | sort -k1,1V -k2,2n -k3,3n > \${outBed}
+        | sort -k1,1V -k2,2n -k3,3n > \${outGroupBed}
+
+    #
+    # Make copies because Nextflow cannot pass on symbolic links.
+    #
+    for outSample in ${mergePeaksMap['outSampleList']}
+    do
+      outBed="\${outSample}-merged_peaks.bed"
+      cp \$outGroupBed \$outBed
+    done
 	"""
 }
-	
+
+/*
+** The mergePeaksOutChannel returns paths bundled in lists
+** so flatten the channel for downstream processes.
+*/
 mergePeaksOutChannel
+    .flatten()
     .into { mergePeaksOutChannelCopy01;
             mergePeaksOutChannelCopy02;
             mergePeaksOutChannelCopy03;
@@ -2235,6 +2255,10 @@ def getSamplesJson( argsJson ) {
 	}
 	runs.each { aRun ->
 		samples = argsJson[aRun]['samples']
+        if( samples == null ) {
+            printErr "Error: no samples list for run " + aRun + " in args.json"
+            System.exit( -1 )
+        }
 		def numLanes = argsJson[aRun]['sequencing_run_metadata']['lanes'].toInteger()
 		samples.each { aSample ->
 			for( i = 1; i <= numLanes; ++i ) {
@@ -2247,6 +2271,39 @@ def getSamplesJson( argsJson ) {
 		sampleLaneMap[aSample].unique()
 	}
 	return( sampleLaneMap )
+}
+
+
+def getSamplePeakGroupMap( argsJson ) {
+    /*
+    ** Make a map of peak groups keyed by sample. And check
+    ** that the groups are consistent, if there is more than
+    ** one run.
+    */
+    def samplePeakGroupMap = [:]
+    def errorFlag = 0
+    def runs = argsJson.keySet()
+    runs.each { aRun ->
+        peakGroups = argsJson[aRun]['peak_groups']
+        if( peakGroups == null ) {
+            printErr "Error: no peak_groups map for run " + aRun + " in args.json"
+            System.exit( -1 )
+        }
+        peakGroups.each { aSample, aGroup ->
+            if( ! samplePeakGroupMap.containsKey( aSample ) ) {
+                samplePeakGroupMap[aSample] = aGroup
+            } else {
+                if( samplePeakGroupMap[aSample] != aGroup ) {
+                    printErr "Error: inconsistent peak groups assigned to sample: " + aSample
+                    errorFlag = 1
+                }
+            }
+        }
+    }
+    if( errorFlag == 1 ) {
+        System.exit( -1 )
+    }
+    return( samplePeakGroupMap )
 }
 
 
@@ -2791,15 +2848,15 @@ def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 
 /*
 ** ================================================================================
-** Make peak file channel setup functions.
+** Make merged peak file channel setup functions.
 ** ================================================================================
 */
 
 /*
-** Set up channel of peak files for downstream analysis.
-** Return a list a tuples, a tuple for each sample.
+** Set up channel of merged peak files for downstream analysis.
+** Return a list a tuples, a tuple for each peak group.
 */
-def makePeakFileChannelSetup( inPaths, sampleSortedNames ) {
+def makePeakFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupMap ) {
 	/*
 	** Check for expected files.
 	*/
@@ -2816,13 +2873,43 @@ def makePeakFileChannelSetup( inPaths, sampleSortedNames ) {
 			System.exit( -1 )
 		}    
 	}
-	
-	def outTuples = []
-	sampleSortedNames.each { aSample ->
-	   def inBed = aSample + '-peaks.narrowPeak.gz'
-	   def tuple = new Tuple( fileMap[inBed], [ 'sample': aSample ] )
-	   outTuples.add( tuple )
-	}
+
+    /*
+    ** Make a map of lists of sample files keyed by group and
+    ** make lists of per-sample output files, which will be
+    ** copies of the associated merge peak files.
+    */
+    def groupPaths = [:]
+    def outSampleLists = [:]
+    samplePeakGroupMap.each { aSample, aGroup ->
+        if( ! groupPaths.containsKey( aGroup ) ) {
+            groupPaths[aGroup] = []
+        }
+        if( outSampleLists.containsKey( aGroup ) ) {
+            outSampleLists[aGroup] += " "
+        } else {
+            outSampleLists[aGroup] = ""
+        }
+        outSampleLists[aGroup] += aSample
+    }
+
+    /*
+    ** Make a map of file path lists keyed by group.
+    */
+    inPaths.each { aPath ->
+        def fileName = aPath.getFileName().toString()
+        def aSample = fileName.split( "-" )[0]
+        groupPaths[samplePeakGroupMap[aSample]].add( aPath )
+    }
+
+    /*
+    ** Make channel list.
+    */
+    def outTuples = []
+    groupPaths.each { aGroup, aList ->
+        def tuple = new Tuple( aList, [ 'group' : aGroup, 'outSampleList' : outSampleLists[aGroup] ] )
+        outTuples.add( tuple )
+    }
 
 	return( outTuples )
 }
