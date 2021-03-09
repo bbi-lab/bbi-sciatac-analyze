@@ -146,17 +146,17 @@ test_peak_matrix <- function( peak_matrix, min_feature, min_cell )
 ########################################
 # Plotting functions.
 ########################################
-plot_umap_pdf <- function(cds, umap_plot_file) {
+plot_umap_pdf <- function(cds, umap_plot_file, sample_name) {
     umap_plot_file <- str_replace(umap_plot_file, '[.]pdf', '')
     umap_plot_file <- paste0(umap_plot_file, '.pdf')
-    monocle3::plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE)
+    monocle3::plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE) + ggplot2::ggtitle(sample_name)
     ggsave(umap_plot_file)
 }
 
-plot_umap_png <- function(cds, umap_plot_file) {
+plot_umap_png <- function(cds, umap_plot_file, sample_name) {
     umap_plot_file <- str_replace(umap_plot_file, '[.]png', '')
     umap_plot_file <- paste0(umap_plot_file, '.png')
-    monocle3::plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE)
+    monocle3::plot_cells(cds, reduction_method='UMAP', show_trajectory_graph=FALSE) + ggplot2::ggtitle(sample_name)
     ggsave(umap_plot_file)
 }
 
@@ -385,17 +385,17 @@ write_reduced_dimensions <- function(cds, lsi_coords_file=NULL, umap_coords_file
 ######################################################################################
 # make UMAP plot
 ######################################################################################
-make_umap_plot <- function(cds, umap_plot_file=NULL)
+make_umap_plot <- function(cds, umap_plot_file=NULL, sample_name)
 {
     if(!is.null(umap_plot_file))
     {
         message_log('ReduceDimensions: write UMAP plot: ', umap_plot_file)
-        plot_umap_png(cds=cds, umap_plot_file)
+        plot_umap_png(cds=cds, umap_plot_file, sample_name)
     }
     if(!is.null(umap_plot_file))
     {
         message_log('ReduceDimensions: write UMAP plot: ', umap_plot_file)
-        plot_umap_pdf(cds=cds, umap_plot_file)
+        plot_umap_pdf(cds=cds, umap_plot_file, sample_name)
     }
     return(NULL)
 }
@@ -438,5 +438,5 @@ matrix_data <- preprocess_peak_matrix(mat_file=args$mat_file,
                                       cds_file=args$cds_file )
 cds <- make_monocle3_cds(matrix_data, num_lsi_dimensions=args$num_lsi_dimensions, cluster_resolution=args$cluster_resolution, cds_file=args$cds_file)
 write_reduced_dimensions(cds, lsi_coords_file=args$lsi_coords_file, umap_coords_file=args$umap_coords_file)
-make_umap_plot(cds, umap_plot_file=args$umap_plot_file)
+make_umap_plot(cds, umap_plot_file=args$umap_plot_file, args$sample_name)
 
