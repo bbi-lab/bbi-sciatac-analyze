@@ -365,6 +365,11 @@ def sampleLaneJsonMap = getSamplesJson( argsJson )
 def samplePeakGroupMap = getSamplePeakGroupMap( argsJson )
 
 /*
+** Get a map of peak files keyed by sample name.
+*/
+def samplePeakFileMap = getSamplePeakFileMap( argsJson )
+
+/*
 ** Check that args.samples, if given, are in json file and
 ** return a map of sample lanes to process.
 */
@@ -396,6 +401,12 @@ def sampleGenomeMap = getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson )
 ** Additional checks.
 ** ================================================================================
 */
+
+/*
+** Check that peak files exist.
+*/
+checkPeakFiles( samplePeakFileMap )
+
 
 /*
 ** Check for trimmed fastq files.
@@ -486,6 +497,33 @@ sortChromosomeSizeOutChannel
             sortChromosomeSizeOutChannelCopy07;
             sortChromosomeSizeOutChannelCopy08;
             sortChromosomeSizeOutChannelCopy09 }
+
+
+/*
+** Sort peak files into sample precheck directories.
+*/
+Channel
+    .fromList( peakFileChannelSetup( sampleSortedNames, samplePeakFileMap ) )
+    .set { sortPeakFileInChannel }
+
+
+process sortPeakFileProcess {
+    cache 'lenient'
+    errorStrategy errorStrategy { sleep(Math.pow(2, task.attempt) * 200); return 'retry' }
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "precheck" ) }, pattern: "*.bed", mode: 'copy'
+
+    input:
+    val peakFileMap from sortPeakFileInChannel
+
+    output:
+    file( "*.bed" ) into sortPeakFileOutChannel
+
+    script:
+    """
+    outBed="${peakFileMap['sample']}-${peakFileMap['nameBed']}"
+    zcat -f ${peakFileMap['inBed']} | sort -k1,1V -k2,2n -k3,3n > \${outBed}
+    """
+}
 
 
 /*
@@ -744,29 +782,39 @@ callPeaksOutChannelNarrowPeak
 /*
 ** Merge called peaks.
 **
+** Notes:
+**   o  the mergePeaksByGroupProcess input channel presents
+**      sets of bed file paths that define the merged peak
+**      groups as specified in the samplesheet.
+**   o  merged peak bed files in ${outGroupBed} are copied to
+**      sample-specific bed files and the sample-specific files
+**      are submitted to the output channel.
+**   o  the sample-specific bed files are merged with external
+**      bed peak files if the samplesheet gives an external file
+**      for the sample. This step is done in the next process
+**      block *processMergePeaksByFile*.
 */
 callPeaksOutChannelNarrowPeakCopy01
 	.toList()
-	.flatMap { makePeakFileChannelSetup( it, sampleSortedNames, samplePeakGroupMap ) }
-	.set { mergePeaksInChannel }
+	.flatMap { makePeakByGroupFileChannelSetup( it, sampleSortedNames, samplePeakGroupMap ) }
+	.set { mergePeaksByGroupInChannel }
 
 
-process mergePeaksProcess {
+process mergePeaksByGroupProcess {
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
-//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-group_merged_peaks.bed", mode: 'copy'
+//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-group_merged_peaks.bed", mode: 'copy'
 
 	input:
-
-	set file( 'inBeds' ), mergePeaksMap from mergePeaksInChannel
+	set file( 'inBeds' ), mergePeaksMap from mergePeaksByGroupInChannel
 			
 	output:
-	file( "*-merged_peaks.bed" ) into mergePeaksOutChannel
+	file( "*-group_merged_peaks.bed" ) into mergePeaksByGroupOutChannel
 			
 	script:
 	"""
-	outGroupBed="${mergePeaksMap['group']}-group_merged_peaks.bed"
+	outGroupBed="${mergePeaksMap['group']}-group_merged_peaks_set.bed"
 	
     zcat inBeds* \
         | cut -f1-3 \
@@ -779,27 +827,63 @@ process mergePeaksProcess {
     #
     for outSample in ${mergePeaksMap['outSampleList']}
     do
-      outBed="\${outSample}-merged_peaks.bed"
+      outBed="\${outSample}-group_merged_peaks.bed"
       cp \$outGroupBed \$outBed
     done
 	"""
 }
 
-/*
-** The mergePeaksOutChannel returns paths bundled in lists
-** so flatten the channel for downstream processes.
-*/
-mergePeaksOutChannel
-    .flatten()
-    .into { mergePeaksOutChannelCopy01;
-            mergePeaksOutChannelCopy02;
-            mergePeaksOutChannelCopy03;
-            mergePeaksOutChannelCopy04;
-            mergePeaksOutChannelCopy05;
-            mergePeaksOutChannelCopy06;
-            mergePeaksOutChannelCopy07 }
 
-    
+/*
+** The mergePeaksByGroupOutChannel returns paths bundled in lists
+** so flatten the channel.
+** Notes:
+**   o  'mix' in peak files in sortPeakFileOutChannel. The peak
+**       files have the sample names prepended so they are
+**       distributed correctly for merging.
+*/
+mergePeaksByGroupOutChannel
+    .flatten()
+    .mix( sortPeakFileOutChannel )
+    .toList()
+    .flatMap { makePeakByFileFileChannelSetup( it, sampleSortedNames, samplePeakGroupMap, samplePeakFileMap ) }
+    .set { mergePeaksByFileInChannel }
+
+
+process mergePeaksByFileProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
+//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
+
+    input:
+    set file( 'inBeds' ), mergePeaksMap from mergePeaksByFileInChannel
+
+    output:
+    file( "*-merged_peaks.bed" ) into mergePeaksByFileOutChannel
+
+    script:
+    """
+    outBed="${mergePeaksMap['sample']}-merged_peaks.bed"
+    cat inBeds* \
+        | cut -f1-3 \
+        | sort -k1,1V -k2,2n -k3,3n \
+        | bedtools merge -i - \
+        | sort -k1,1V -k2,2n -k3,3n > \${outBed}
+    """
+}
+
+
+mergePeaksByFileOutChannel
+    .into { mergePeaksByFileOutChannelCopy01;
+            mergePeaksByFileOutChannelCopy02;
+            mergePeaksByFileOutChannelCopy03;
+            mergePeaksByFileOutChannelCopy04;
+            mergePeaksByFileOutChannelCopy05;
+            mergePeaksByFileOutChannelCopy06;
+            mergePeaksByFileOutChannelCopy07 }
+
+
 /*
 ** ================================================================================
 ** Set up to make site counts.
@@ -842,7 +926,7 @@ process makeWindowedGenomeIntervalsProcess {
 ** Notes:
 **   o  the gene intervals is defined using one of two sources (files)
 */
-mergePeaksOutChannelCopy01
+mergePeaksByFileOutChannelCopy01
     .toList()
     .flatMap { makePromoterSumIntervalsChannelSetup( it, sampleSortedNames, sampleGenomeMap ) }
     .set { makePromoterSumIntervalsInChannel }
@@ -908,7 +992,7 @@ getUniqueFragmentsOutChannelTranspositionSitesCopy02
     .flatMap { makeMergedPeakRegionCountsChannelSetupTranspositionSites( it, sampleSortedNames ) }
     .set { makeMergedPeakRegionCountsInChannelTranspositionSites }
     
-mergePeaksOutChannelCopy02
+mergePeaksByFileOutChannelCopy02
     .toList()
     .flatMap { makeMergedPeakRegionCountsChannelSetupMergedPeaks( it, sampleSortedNames ) }
     .set { makeMergedPeakRegionCountsInChannelMergedPeaks }
@@ -1187,7 +1271,7 @@ getUniqueFragmentsOutChannelTranspositionSitesCopy05
     .flatMap { makePeakMatrixChannelSetupTranspositionSites( it, sampleSortedNames ) }
     .set { makePeakMatrixInChannelTranspositionSites }
     
-mergePeaksOutChannelCopy03
+mergePeaksByFileOutChannelCopy03
     .toList()
     .flatMap { makePeakMatrixChannelSetupMergedPeaks( it, sampleSortedNames ) }
     .set { makePeakMatrixInChannelMergedPeaks }
@@ -1359,7 +1443,7 @@ process makePromoterMatrixProcess {
 **  call_cells_stats_files                  callCellsOutChannelCalledCellsStats             *-called_cells_stats.json
 **  insert_size_distributions               getUniqueFragmentsOutChannelDuplicateReport     *-insert_sizes.txt
 **  peak_call_files                         callPeaksOutChannelNarrowPeakCopy02             *-peaks.narrowPeak.gz
-**  merged_peaks                            mergePeaksOutChannelCopy04                      *-merged_peaks.bed
+**  merged_peaks                            mergePeaksByFileOutChannelCopy04                *-merged_peaks.bed
 **  per_base_tss_region_coverage_files      getPerBaseCoverageTssOutChannel                 *-tss_region_coverage.txt.gz
 **  call_cells_summary_plot                 (this function out channel)                     
 **  call_cells_summary_stats                (this function out channel)                     
@@ -1386,7 +1470,7 @@ callPeaksOutChannelNarrowPeakCopy02
     .flatMap { summarizeCellCallsSetupNarrowPeak( it, sampleSortedNames ) }
     .set { summarizeCellCallsInChannelNarrowPeak }
 
-mergePeaksOutChannelCopy04
+mergePeaksByFileOutChannelCopy04
     .toList()
     .flatMap { summarizeCellCallsSetupMergedPeaks( it, sampleSortedNames ) }
     .set { summarizeCellCallsInChannelMergedPeaks }
@@ -1469,7 +1553,7 @@ sortTssBedOutChannelCopy03
     .flatMap{ makeGenomeBrowserFilesChannelSetupTss( it, sampleSortedNames, sampleGenomeMap ) }
     .set { makeGenomeBrowserFilesInChannelTssRegions }
 
-mergePeaksOutChannelCopy05
+mergePeaksByFileOutChannelCopy05
     .toList()
     .flatMap{ makeGenomeBrowserFilesChannelSetupMergedPeaks( it, sampleSortedNames ) }
     .set { makeGenomeBrowserFilesInChannelMergedPeaks }
@@ -1630,7 +1714,7 @@ Channel
 	.fromList( 0..params.motif_calling_gc_bins-1 )
 	.set { gcBinsInChannel }
 
-mergePeaksOutChannelCopy06
+mergePeaksByFileOutChannelCopy06
 	.combine( gcBinsInChannel )
 	.toList()
 	.flatMap { callMotifsChannelSetupMergedPeaks( it, sampleSortedNames, sampleGenomeMap ) }
@@ -1686,7 +1770,7 @@ callMotifsOutChannelPeakCalls
 	.flatMap { makeMotifMatrixChannelSetupPeakCalls( it, sampleSortedNames, sampleGenomeMap ) }
 	.set { makeMotifMatrixInChannelPeakCalls }
 	
-mergePeaksOutChannelCopy07
+mergePeaksByFileOutChannelCopy07
 	.toList()
 	.flatMap { makeMotifMatrixChannelSetupMergedPeaks( it, sampleSortedNames, sampleGenomeMap ) }
 	.set { makeMotifMatrixInChannelMergedPeaks }
@@ -1944,6 +2028,7 @@ makeReducedDimensionMatrixOutChannelUmapPlot
 process makeMergedPlotFilesProcess {
     cache 'lenient'
     errorStrategy onError
+    publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.called_cells_summary.stats.tsv", mode: 'copy'
     publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.called_cells_summary.pdf", mode: 'copy'
     publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.umap_plots.pdf", mode: 'copy'
 
@@ -1952,7 +2037,8 @@ process makeMergedPlotFilesProcess {
     file( "*-umap_plots.pdf") from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
 
     output:
-    file( "merged.called_cells_summary.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummary
+    file( "merged.called_cells_summary.stats.tsv" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryTsv
+    file( "merged.called_cells_summary.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryPdf
     file( "merged.umap_plots.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedUmapPlots
 
     script:
@@ -1960,6 +2046,17 @@ process makeMergedPlotFilesProcess {
     mkdir -p ${output_dir}/analyze_out/merged_plots
     ${script_dir}/merge_summary_plots.py -i ${output_dir}/analyze_out/args.json -o merged.called_cells_summary.pdf
     ${script_dir}/merge_umap_plots.py -i ${output_dir}/analyze_out/args.json -o merged.umap_plots.pdf
+
+    header='sample cell_threshold fraction_hs fraction_tss median_per_cell_frip median_per_cell_frit tss_enrichment sample_peaks_called total_merged_peaks total_reads fraction_reads_in_cells total_barcodes number_of_cells median_reads_per_cell min_reads_per_cell max_reads_per_cell median_duplication_rate median_fraction_molecules_observed median_total_fragments total_deduplicated_reads [bloom_collision_rate]'
+    stats_file='merged.called_cells_summary.stats.tsv'
+    header_wtabs=`echo \${header} | sed 's/ /\t/g'`
+    rm -f \${stats_file}
+    echo "\${header_wtabs}" > \${stats_file}
+    lfil=`ls *-called_cells_summary.stats.txt`
+    for fil in \${lfil}
+    do
+      tail -n +2 \${fil} >> \${stats_file}
+    done
     """
 }
 
@@ -2278,8 +2375,9 @@ def getSamplePeakGroupMap( argsJson ) {
     /*
     ** Make a map of peak groups keyed by sample. And check
     ** that the groups are consistent, if there is more than
-    ** one run.
+    ** one run. Allow for empty, zero-length, values.
     */
+    def peakGroups
     def samplePeakGroupMap = [:]
     def errorFlag = 0
     def runs = argsJson.keySet()
@@ -2304,6 +2402,65 @@ def getSamplePeakGroupMap( argsJson ) {
         System.exit( -1 )
     }
     return( samplePeakGroupMap )
+}
+
+
+def getSamplePeakFileMap( argsJson ) {
+    /*
+    ** Make a map of peak files keyed by sample. And check
+    ** that the files are consistent, if there is more than
+    ** one run. Allow for empty, zero-length, values.
+    */
+    def peakFiles
+    def samplePeakFileMap = [:]
+    def errorFlag = 0
+    def runs = argsJson.keySet()
+    runs.each { aRun ->
+        peakFiles = argsJson[aRun]['peak_files']
+        if( peakFiles == null ) {
+            printErr "Error: no peak_files map for run " + aRun + " in args.json"
+            System.exit( -1 )
+        }
+        peakFiles.each { aSample, aFile ->
+            if( ! samplePeakFileMap.containsKey( aSample ) ) {
+                samplePeakFileMap[aSample] = aFile
+            } else {
+                if( samplePeakFileMap[aSample] != aFile ) {
+                    printErr "Error: inconsistent peak files assigned to sample: " + aSample
+                    errorFlag = 1
+                }
+            }
+        }
+    }
+    if( errorFlag == 1 ) {
+        System.exit( -1 )
+    }
+    return( samplePeakFileMap )
+}
+
+
+/*
+** Check that sample-specific peak files exist.
+*/
+def checkPeakFiles( samplePeakFileMap ) {
+    def errorFlag = 0
+    def fileHandle
+    samplePeakFileMap.each { aSample, aFile ->
+        if( aFile.length() > 0 ) {
+            fileHandle = new File( aFile )
+            if( !fileHandle.exists() ) {
+                printErr "Error: unable to find peak file \'${aFile}\'"
+                errorFlag = 1
+            }
+            if( !fileHandle.canRead() ) {
+                printErr "Error: unable to read peak file \'${aFile}\'"
+                errorFlag = 1
+            }
+        }
+    }
+    if( errorFlag == 1 ) {
+        System.exit( -1 )
+    }
 }
 
 
@@ -2509,6 +2666,24 @@ def sortChromosomeSizeChannelSetup( sampleSortedNames, sampleGenomeMap, genomesJ
     }
 
 	return( chromosomeSizeMaps )
+}
+
+
+/*
+** Set up peak files specified in samplePeakFileMap.
+*/
+def peakFileChannelSetup( sampleSortedNames, samplePeakFileMap ) {
+    def peakFileMap = []
+    def fileName
+    def f
+    sampleSortedNames.each { aSample ->
+        if( samplePeakFileMap[aSample].length() > 0 ) {
+            f = new File( samplePeakFileMap[aSample] )
+            nameBed = f.getName()
+            peakFileMap.add( [ 'sample': aSample, 'inBed': samplePeakFileMap[aSample], 'nameBed': nameBed ] )
+        }
+    }
+    return( peakFileMap )
 }
 
 
@@ -2853,10 +3028,10 @@ def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 */
 
 /*
-** Set up channel of merged peak files for downstream analysis.
-** Return a list a tuples, a tuple for each peak group.
+** Set up channel of merged peak by group files for downstream
+** analysis. Return a list of tuples, a tuple for each peak group.
 */
-def makePeakFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupMap ) {
+def makePeakByGroupFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupMap ) {
 	/*
 	** Check for expected files.
 	*/
@@ -2877,29 +3052,44 @@ def makePeakFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupMap ) {
     /*
     ** Make a map of lists of sample files keyed by group and
     ** make lists of per-sample output files, which will be
-    ** copies of the associated merge peak files.
+    ** copies of the associated merge peak files. Allow for
+    ** empty, zero length, strings.
     */
     def groupPaths = [:]
     def outSampleLists = [:]
     samplePeakGroupMap.each { aSample, aGroup ->
-        if( ! groupPaths.containsKey( aGroup ) ) {
-            groupPaths[aGroup] = []
+        /*
+        ** Skip if sample is not assigned to a
+        ** peak group.
+        */
+        if( aGroup.length() > 0 ) {
+            if( ! groupPaths.containsKey( aGroup ) ) {
+                groupPaths[aGroup] = []
+            }
+            if( outSampleLists.containsKey( aGroup ) ) {
+                outSampleLists[aGroup] += " "
+            } else {
+                outSampleLists[aGroup] = ""
+            }
+            outSampleLists[aGroup] += aSample
         }
-        if( outSampleLists.containsKey( aGroup ) ) {
-            outSampleLists[aGroup] += " "
-        } else {
-            outSampleLists[aGroup] = ""
-        }
-        outSampleLists[aGroup] += aSample
     }
 
     /*
-    ** Make a map of file path lists keyed by group.
+    ** Make a map of file path lists keyed by group. This
+    ** forms the input channel to the process. Allow for
+    ** empty, zero-length, values.
     */
     inPaths.each { aPath ->
         def fileName = aPath.getFileName().toString()
         def aSample = fileName.split( "-" )[0]
-        groupPaths[samplePeakGroupMap[aSample]].add( aPath )
+        /*
+        ** Skip if sample is not assigned to a
+        ** peak group.
+        */
+        if( samplePeakGroupMap[aSample].length() > 0 ) {
+            groupPaths[samplePeakGroupMap[aSample]].add( aPath )
+        }
     }
 
     /*
@@ -2912,6 +3102,67 @@ def makePeakFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupMap ) {
     }
 
 	return( outTuples )
+}
+
+
+/*
+** Three possibilities exist:
+**   o  a group is given for the sample in the
+**      samplesheet file
+**   o  an external bed file is given for the sample
+**      in the samplesheet file
+**   o  both a group and an external bed file are
+**      given for the sample
+*/
+def makePeakByFileFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupMap, samplePeakFileMap ) {
+    /*
+    ** Check for expected files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        if( samplePeakGroupMap[aSample].length() > 0 ) {
+            def fileName = aSample + '-group_merged_peaks.bed'
+            filesExpected.add( fileName )
+        }
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: : missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Initialize the file paths map. There must
+    ** be at least one bed file for each sample.
+    */
+    filePaths = [:]
+    sampleSortedNames.each { aSample ->
+        filePaths[aSample] = []
+    }
+
+    /*
+    ** The merged peak bed files from the merge peak
+    ** by group process above.
+    */
+    inPaths.each { aPath ->
+        def fileName = aPath.getFileName().toString()
+        def aSample = fileName.split( "-" )[0]
+        filePaths[aSample].add( aPath )
+    }
+
+    /*
+    ** Make channel list.
+    */
+    def outTuples = []
+    filePaths.each { aSample, aList ->
+        def tuple = new Tuple( aList, [ 'sample' : aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
 }
 
 
