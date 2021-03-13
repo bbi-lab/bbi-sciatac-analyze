@@ -274,7 +274,6 @@ def onError = { return( "retry" ) }
 ** Initial pre-defined, required run-specific, command-line parameter values.
 */
 params.help = false
-params.max_cores = 16
 params.motif_calling_gc_bins = 25
 
 
@@ -283,16 +282,11 @@ params.motif_calling_gc_bins = 25
 ** Notes:
 **   boolean values: true/false
 */
-params.max_forks = null
-params.queue = null
 params.samples = null
 params.bowtie_cpus = 8
 params.bowtie_seed = null
 params.reads_threshold = null
-params.no_secondary = null
 params.calculate_banding_scores = null
-params.topic_models = null
-params.topics = null
 params.doublet_predict = true
 params.filter_blacklist_regions = true
 
@@ -804,18 +798,20 @@ process mergePeaksByGroupProcess {
 	cache 'lenient'
     errorStrategy onError
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-group_merged_peaks.bed", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merge_by_group_beds.txt", mode: 'copy'
 //    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-group_merged_peaks.bed", mode: 'copy'
 
 	input:
 	set file( 'inBeds' ), mergePeaksMap from mergePeaksByGroupInChannel
-			
+
 	output:
 	file( "*-group_merged_peaks.bed" ) into mergePeaksByGroupOutChannel
-			
+    file( "*-merge_by_group_beds.txt" ) into mergePeaksByGroupOutChannelBedList
+
 	script:
 	"""
 	outGroupBed="${mergePeaksMap['group']}-group_merged_peaks_set.bed"
-	
+
     zcat inBeds* \
         | cut -f1-3 \
         | sort -k1,1V -k2,2n -k3,3n \
@@ -828,7 +824,10 @@ process mergePeaksByGroupProcess {
     for outSample in ${mergePeaksMap['outSampleList']}
     do
       outBed="\${outSample}-group_merged_peaks.bed"
-      cp \$outGroupBed \$outBed
+      cp \${outGroupBed} \${outBed}
+
+      outBedList="\${outSample}-merge_by_group_beds.txt"
+      echo "${mergePeaksMap['listBeds']}" > \${outBedList}
     done
 	"""
 }
@@ -854,6 +853,7 @@ process mergePeaksByFileProcess {
     cache 'lenient'
     errorStrategy onError
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "call_peaks" ) }, pattern: "*-merge_by_file_beds.txt", mode: 'copy'
 //    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "genome_browser" ) }, pattern: "*-merged_peaks.bed", mode: 'copy'
 
     input:
@@ -861,6 +861,7 @@ process mergePeaksByFileProcess {
 
     output:
     file( "*-merged_peaks.bed" ) into mergePeaksByFileOutChannel
+    file( "*-merge_by_file_beds.txt" ) into mergePeaksByFileOutChannelBedList
 
     script:
     """
@@ -870,6 +871,9 @@ process mergePeaksByFileProcess {
         | sort -k1,1V -k2,2n -k3,3n \
         | bedtools merge -i - \
         | sort -k1,1V -k2,2n -k3,3n > \${outBed}
+
+    outBedList="${mergePeaksMap['sample']}-merge_by_file_beds.txt"
+    echo "${mergePeaksMap['listBeds']}" > \${outBedList}
     """
 }
 
@@ -2143,23 +2147,25 @@ def writeHelp() {
     log.info '    nextflow run main.nf -c <CONFIG_FILE_NAME>'
     log.info ''
     log.info 'Help: '
-    log.info '    --help                              Show this message and exit.'
+    log.info '    --help                                           Show this message and exit.'
     log.info ''
     log.info 'Required parameters (specify in your config file):'
-    log.info '    params.output_dir = OUTPUT_DIRECTORY (str)     Path to the demux directory with the demultiplexed fastq files.'
-    log.info '    params.genomes_json = GENOMES_JSON         A json file of genome information for analyses.'
+    log.info '    params.run_dir = RUN_DIRECTORY (str)             Path to the Illumina run directory.'
+    log.info '    params.sample_sheet = SAMPLE_SHEET (str)         Path to sample sheet file.'
+    log.info '    params.output_dir = OUTPUT_DIRECTORY (str)       Path to the demux directory with the demultiplexed fastq files.'
+    log.info '    params.genomes_json = GENOMES_JSON               A json file of genome information for analyses.'
     log.info ''
     log.info 'Optional parameters (specify in your config file):'
-    log.info '    params.samples = SAMPLES (str)             A list of samples to include in the analysis. Restrict to a subset of samples in demux output.'
-    log.info '    process.bowtie_seed = SEED (int)           Bowtie random number generator seed.'
-//    log.info '    params.reads_threshold = THRESHOLD (int)   Threshold for how many unique reads to consider a cell. Default is to dynamically pick with mclust.'
-//	log.info '    params.no_secondary (flag)                 This flag prevents dimensionality reduction and clustering.'
-//	log.info '    params.calculate_banding_scores (flag)     Add flag to calculate banding scores (take a while to run which is why opt-in here).'
-//	log.info '    params.topic_models (flag)                 Add flag to generate topic models using cisTopic.'
-//	log.info '    params.topics (str)                        If generating topic models, this allows the user to specify a list of topic counts to try.'
-    log.info '    params.max_cores = 16                      The maximum number of cores to use - fewer will be used if appropriate.'
-    log.info '    process.max_forks = 20                      The maximum number of processes to run at the same time on the cluster.'
-    log.info '    process.queue = "trapnell-short.q"         The queue on the cluster where the jobs should be submitted.'
+    log.info '    params.bowtie_cpus = CPUS (int)                  Number of threads in bowtie run.'
+    log.info '    params.bowtie_memory = MEMORY (int)              Amount of memory in bowtie run.'
+    log.info '    params.bowtie_seed = SEED (int)                  Bowtie random number generator seed.'
+    log.info '    params.doublet_predict VALUE (logical)           Run double prediction.'
+    log.info '    params.filter_blacklist_regions VALUE (logical)  Filter blacklisted genomic regions when preprocessing the cell_data_set.'
+	log.info '    params.calculate_banding_scores (flag)           Add flag to calculate banding scores (take a while to run which is why opt-in here).'
+    log.info '    params.samples = SAMPLES (str)                   A list of samples to include in the analysis. Restrict to a subset of samples in demux output.'
+    log.info '    params.reads_threshold = THRESHOLD (int)         Threshold for how many unique reads to consider a cell. Default is to dynamically pick with mclust.'
+    log.info '    process.max_forks = 20                           The maximum number of processes to run at the same time on the cluster.'
+    log.info '    process.queue = "trapnell-short.q"               The queue on the cluster where the jobs should be submitted.'
     log.info ''
     log.info 'Issues? Contact bge@uw.edu'
 }
@@ -2185,19 +2191,9 @@ def reportRunParams( params ) {
 	if( params.reads_threshold != null ) {
 	   s += String.format( "Threshold for # reads/cell:           %s\n", params.reads_threshold )
 	}
-	if( params.no_secondary != null ) {
-	   s += String.format( "Omit dimensionality reduction:        set\n" )
-	}
 	if( params.calculate_banding_scores != null ) {
 	   s += String.format( "Calculate banding scores:             %s\n", params.calculate_banding_scores )
 	}
-	if( params.topic_models != null ) {
-	   s += String.format( "Generate topic models using cisTopic: %s\n", params.topic_models )
-	}
-    if( params.topics != null ) {
-	   s += String.format( "If generating topic models, this allows the user to specify a list of topic counts to try.:   %s\n", params.topics )
-	}
-	s += String.format( "Maximum cores:                        %d\n", params.max_cores )
 	s += String.format( "\n" )
 	print( s )
 	
@@ -2541,11 +2537,7 @@ def writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeN
     analyzeDict['samples'] = samples
     analyzeDict['bowtie_seed'] = params.bowtie_seed
     analyzeDict['reads_threshold'] = params.reads_threshold
-    analyzeDict['no_secondary'] = params.no_secondary
     analyzeDict['calculate_banding_scores'] = params.calculate_banding_scores
-    analyzeDict['topic_models'] = params.topic_models
-    analyzeDict['topics'] = params.topics
-    analyzeDict['max_cores'] = params.max_cores
     analyzeDict['RUNS'] = argsJson
     File file_json = new File( jsonFilename )
     file_json.write( JsonOutput.prettyPrint( JsonOutput.toJson( analyzeDict ) ) )
@@ -3030,6 +3022,14 @@ def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 /*
 ** Set up channel of merged peak by group files for downstream
 ** analysis. Return a list of tuples, a tuple for each peak group.
+** Notes:
+**   o  this function takes sample-based paths from the input
+**      channel
+**   o  this functino returns group-based paths to the output
+**      channel
+**   o  this function identifies samples with groups and 
+**      returns maps that map groups to samples and bed
+**      file names
 */
 def makePeakByGroupFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupMap ) {
 	/*
@@ -3050,36 +3050,11 @@ def makePeakByGroupFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroup
 	}
 
     /*
-    ** Make a map of lists of sample files keyed by group and
-    ** make lists of per-sample output files, which will be
-    ** copies of the associated merge peak files. Allow for
-    ** empty, zero length, strings.
-    */
-    def groupPaths = [:]
-    def outSampleLists = [:]
-    samplePeakGroupMap.each { aSample, aGroup ->
-        /*
-        ** Skip if sample is not assigned to a
-        ** peak group.
-        */
-        if( aGroup.length() > 0 ) {
-            if( ! groupPaths.containsKey( aGroup ) ) {
-                groupPaths[aGroup] = []
-            }
-            if( outSampleLists.containsKey( aGroup ) ) {
-                outSampleLists[aGroup] += " "
-            } else {
-                outSampleLists[aGroup] = ""
-            }
-            outSampleLists[aGroup] += aSample
-        }
-    }
-
-    /*
     ** Make a map of file path lists keyed by group. This
     ** forms the input channel to the process. Allow for
     ** empty, zero-length, values.
     */
+    def groupPaths = [:]
     inPaths.each { aPath ->
         def fileName = aPath.getFileName().toString()
         def aSample = fileName.split( "-" )[0]
@@ -3088,7 +3063,45 @@ def makePeakByGroupFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroup
         ** peak group.
         */
         if( samplePeakGroupMap[aSample].length() > 0 ) {
+            if( !groupPaths.containsKey( samplePeakGroupMap[aSample] ) ) {
+                groupPaths[samplePeakGroupMap[aSample]] = []
+            }
             groupPaths[samplePeakGroupMap[aSample]].add( aPath )
+        }
+    }
+
+    /*
+    ** Make a map of lists of sample names keyed by group.
+    ** Allow for empty, zero length, strings.
+    */
+    def outSampleLists = [:]
+    samplePeakGroupMap.each { aSample, aGroup ->
+        /*
+        ** Skip if sample is not assigned to a
+        ** peak group.
+        */
+        if( aGroup.length() > 0 ) {
+            if( ! outSampleLists.containsKey( aGroup ) ) {
+                outSampleLists[aGroup] = []
+            }
+            outSampleLists[aGroup].add( aSample )
+        }
+    }
+
+    /*
+    ** Make a list of bed filenames by group.
+    ** Notes:
+    **   o  all sampleSortedNames has all samples
+    **   o  samplePeakGroupMap has samples in peak
+    **      groups
+    **   o  there can be empty listBeds, which become
+    **      empty strings
+    */
+    def listBeds = [:]
+    groupPaths.each { aGroup, aList ->
+        listBeds[aGroup] = []
+        aList.each { aPath ->
+           listBeds[aGroup].add( aPath.getFileName().toString() )
         }
     }
 
@@ -3097,7 +3110,9 @@ def makePeakByGroupFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroup
     */
     def outTuples = []
     groupPaths.each { aGroup, aList ->
-        def tuple = new Tuple( aList, [ 'group' : aGroup, 'outSampleList' : outSampleLists[aGroup] ] )
+        def tuple = new Tuple( aList, [ 'group' : aGroup,
+                               'outSampleList' : outSampleLists[aGroup].join( ' ' ),
+                               'listBeds': listBeds[aGroup].join( ' ' ) ] )
         outTuples.add( tuple )
     }
 
@@ -3113,6 +3128,9 @@ def makePeakByGroupFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroup
 **      in the samplesheet file
 **   o  both a group and an external bed file are
 **      given for the sample
+**   o  the inPaths contains the combined group bed
+**      and external bed paths so there is at least
+**      one path per sample
 */
 def makePeakByFileFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupMap, samplePeakFileMap ) {
     /*
@@ -3154,11 +3172,23 @@ def makePeakByFileFileChannelSetup( inPaths, sampleSortedNames, samplePeakGroupM
     }
 
     /*
-    ** Make channel list.
+    ** Make a list of bed filenames by sample.
+    */
+    def listBeds = [:]
+    filePaths.each { aSample, aList ->
+        listBeds[aSample] = []
+        aList.each { aPath ->
+            listBeds[aSample].add( aPath.getFileName().toString() )
+        }
+    }
+
+    /*
+    ** Make output channel list.
     */
     def outTuples = []
     filePaths.each { aSample, aList ->
-        def tuple = new Tuple( aList, [ 'sample' : aSample ] )
+        def tuple = new Tuple( aList, [ 'sample' : aSample,
+                                        'listBeds': listBeds[aSample].join( ' ' ) ] )
         outTuples.add( tuple )
     }
 
