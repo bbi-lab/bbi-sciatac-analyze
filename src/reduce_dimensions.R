@@ -332,6 +332,10 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
 ######################################################################################
 # make Monocle3 cell_data_set
 ######################################################################################
+# Notes:
+#  o  the align_cds is used to remove residual effects of differences in fragment
+#     counts. Some people drop the first PC after PCA to do this but subtracting
+#     out the effects more precisely targets the problem.
 make_monocle3_cds <- function(matrix_data, num_lsi_dimensions=75, cluster_resolution=1.0e-3, cds_file=NULL)
 {
     message_log('ReduceDimensions: new_cell_data_set')

@@ -1603,15 +1603,15 @@ process makeGenomeBrowserFilesProcess {
     
     awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' $inChromosomeSizes > chromosome_size.txt.edited
 
-    zcat $inTssRegions | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1'> \${outTssGb}.bed
+    zcat $inTssRegions | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outTssGb}.bed
     bedToBigBed -tab \${outTssGb}.bed chromosome_size.txt.edited \${outTssGb}.bb
     bgzip \${outTssGb}.bed
     tabix -p bed \${outTssGb}.bed.gz
 
-    cat $inMergedPeaks | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > \${outMergedPeaksGb}.bed
+    cat $inMergedPeaks | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outMergedPeaksGb}.bed
     bedToBigBed -tab \${outMergedPeaksGb}.bed chromosome_size.txt.edited \${outMergedPeaksGb}.bb
     
-    zcat $inTranspositionSites | $script_dir/trim_bed_stream.py $inChromosomeSizes | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > \${outTranspositionSitesGb}.bed
+    zcat $inTranspositionSites | $script_dir/trim_bed_stream.py $inChromosomeSizes | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outTranspositionSitesGb}.bed
     bedToBigBed -tab \${outTranspositionSitesGb}.bed chromosome_size.txt.edited \${outTranspositionSitesGb}.bb
     bgzip \${outTranspositionSitesGb}.bed
     tabix -p bed \${outTranspositionSitesGb}.bed.gz
