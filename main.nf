@@ -2032,7 +2032,7 @@ makeReducedDimensionMatrixOutChannelUmapPlot
 process makeMergedPlotFilesProcess {
     cache 'lenient'
     errorStrategy onError
-    publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.called_cells_summary.stats.tsv", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.called_cells_summary.stats.csv", mode: 'copy'
     publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.called_cells_summary.pdf", mode: 'copy'
     publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.umap_plots.pdf", mode: 'copy'
 
@@ -2041,7 +2041,7 @@ process makeMergedPlotFilesProcess {
     file( "*-umap_plots.pdf") from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
 
     output:
-    file( "merged.called_cells_summary.stats.tsv" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryTsv
+    file( "merged.called_cells_summary.stats.csv" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryTsv
     file( "merged.called_cells_summary.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryPdf
     file( "merged.umap_plots.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedUmapPlots
 
@@ -2052,7 +2052,7 @@ process makeMergedPlotFilesProcess {
     ${script_dir}/merge_umap_plots.py -i ${output_dir}/analyze_out/args.json -o merged.umap_plots.pdf
 
     header='sample cell_threshold fraction_hs fraction_tss median_per_cell_frip median_per_cell_frit tss_enrichment sample_peaks_called total_merged_peaks total_reads fraction_reads_in_cells total_barcodes number_of_cells median_reads_per_cell min_reads_per_cell max_reads_per_cell median_duplication_rate median_fraction_molecules_observed median_total_fragments total_deduplicated_reads [bloom_collision_rate]'
-    stats_file='merged.called_cells_summary.stats.tsv'
+    stats_file='merged.called_cells_summary.stats.csv'
     header_wtabs=`echo \${header} | sed 's/ /\t/g'`
     rm -f \${stats_file}
     echo "\${header_wtabs}" > \${stats_file}
