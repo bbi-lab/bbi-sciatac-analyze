@@ -316,11 +316,12 @@ if( !params.genomes_json ) {
 output_dir = params.output_dir.replaceAll("/\\z", "")
 demux_dir = output_dir + '/demux_out'
 analyze_dir = output_dir + '/analyze_out'
+log_dir = output_dir + '/analyze_log_dir'
 
 /*
 ** Check that required directories exist or can be made.
 */
-checkDirectories( params )
+checkDirectories( params, log_dir )
 
 /*
 ** Report run parameter values.
@@ -444,9 +445,22 @@ process sortTssBedProcess {
 	
 	script:
 	"""
+    PROCESS_BLOCK='sortTssBedProcess'
+    SAMPLE_NAME="na"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outBed="${tssBedMap['sample']}-${tssBedMap['genome']}.tss_file.sorted.bed.gz"
 
 	zcat ${tssBedMap['inBed']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -475,9 +489,22 @@ process sortChromosomeSizeProcess {
 	
 	script:
 	"""
+    PROCESS_BLOCK='sortChromosomeSizeProcess'
+    SAMPLE_NAME="na"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outTxt="${chromosomeSizeMap['sample']}-${chromosomeSizeMap['genome']}.chromosome_sizes.sorted.txt"
 
 	cat ${chromosomeSizeMap['inTxt']} | sort -k1,1V -k2,2n -k3,3n > \${outTxt}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -514,8 +541,21 @@ process sortPeakFileProcess {
 
     script:
     """
+    PROCESS_BLOCK='sortPeakFileProcess'
+    SAMPLE_NAME="na"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outBed="${peakFileMap['sample']}-${peakFileMap['nameBed']}"
     zcat -f ${peakFileMap['inBed']} | sort -k1,1V -k2,2n -k3,3n > \${outBed}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -542,26 +582,78 @@ process runAlignProcess {
 	cache 'lenient'
     errorStrategy onError
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.stderr", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.counts", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bed", mode: 'copy'
  
 	input:
 	val alignMap from runAlignInChannel
 
 	output:
 	file( "*.bam" ) into runAlignOutChannel
+	file( "*.stderr" ) into runAlignStderrChannel
+	file( "*.bed" ) into runAlignOutBedChannel
+	file( "*.counts" ) into runAlignOutCountChannel
 
 	script:
 	"""
-	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
+    PROCESS_BLOCK='runAlignProcess'
+    SAMPLE_NAME="${alignMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
 
-	bowtie2 -3 1 \
+    bowtieBam="${alignMap['sample']}-${alignMap['lane']}.bowtie.bam.all_refs"
+    bowtieStderr="${alignMap['sample']}-${alignMap['lane']}.bowtie.stderr"
+	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
+    outBed="${alignMap['sample']}-${alignMap['lane']}.bed"
+    outReadCounts="${alignMap['sample']}-${alignMap['lane']}.counts"
+
+    bowtie2 -3 1 \
 		-X 2000 \
 		-p ${task.cpus} \
 		-x ${alignMap['genome_index']} \
 		-1 ${alignMap['fastq1']} \
-		-2 ${alignMap['fastq2']} ${alignMap['seed']} \
-		| samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > \${outBam}.tmp.bam
-        samtools sort -T \${outBam}.sorttemp --threads 4 \${outBam}.tmp.bam -o \${outBam}
-        rm \${outBam}.tmp.bam
+		-2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
+        | samtools view -h -b -o \${bowtieBam} -
+
+    samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS \${bowtieBam} > \${outBam}.tmp.bam
+    samtools sort -T \${outBam}.sorttemp --threads 4 \${outBam}.tmp.bam -o \${outBam}
+    rm \${outBam}.tmp.bam
+
+    #
+    # Remove duplicate reads and form a bed file.
+    #
+    samtools sort --threads 2 -n \${bowtieBam} \
+        | samtools fixmate -m - - \
+        | samtools sort --threads 2 \
+        | samtools markdup -r -s - - \
+        | samtools view -b \
+        | bedtools bamtobed -i - > \${outBed}
+    rm \${bowtieBam}
+
+    #
+    # Then
+    #   o  collect reads as adjacent pairs and collapse the pairs
+    #   o  drop the read counter to leave cell names, which are
+    #      equivalent to distinct inserts (unpaired)
+    #   o  count inserts by chromosome and cell 
+    #   o  reorder columns and sort by cell name and chromosome
+    #
+    awk '{split(\$4,parts,"/"); printf("%s\\t%s\\n",\$1,parts[1]);}' \${outBed} \
+        | uniq \
+        | awk '{split(\$2,parts,":"); printf("%s\\t%s\\n",\$1,parts[1]);}' \
+        | sort -k1,1V -k2,2 \
+        | uniq -c \
+        | awk '{printf("%s\\t%s\\t%d\\n",\$3,\$2,\$1)}' \
+        | sort -k1,1 -k2,2V > \${outReadCounts}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -588,6 +680,10 @@ process mergeBamsProcess {
 	
 	script:
 	"""
+    PROCESS_BLOCK='mergeBamsProcess'
+    SAMPLE_NAME="${inMergeBamMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outBam="${inMergeBamMap['sample']}-merged.bam"
 	
 	sambamba merge --nthreads 8 \${outBam} ${inBams}
@@ -598,6 +694,15 @@ process mergeBamsProcess {
     ln -sf ../merge_bams/\${outBam} .
     ln -sf ../merge_bams/\${outBam}.bai .
     popd
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -648,6 +753,10 @@ process getUniqueFragmentsProcess {
 		
 	script:
 	"""
+    PROCESS_BLOCK='getUniqueFragmentsProcess'
+    SAMPLE_NAME="${inUniqueFragmentsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	source ${pipeline_path}/load_python_env_reqs.sh
 	source ${script_dir}/python_env/bin/activate
 
@@ -679,6 +788,17 @@ process getUniqueFragmentsProcess {
     
     bedtools genomecov -ibam ${inBam} -bga | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > \${outBedGraph}
     # bedGraphToBigWig \${outBedGraph} $inGenomeSizes \${outBigWig}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -729,6 +849,10 @@ process callPeaksProcess {
 	
     script:
 	"""
+    PROCESS_BLOCK='callPeaksProcess'
+    SAMPLE_NAME="${inCallPeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	# MACS uses an underscore between the sample name and the file type
 	# so we need to rename output files.
 	outDir="call_peaks"
@@ -761,6 +885,15 @@ process callPeaksProcess {
 	mv \${outMacsSummits} \${outSummits}
 	
 	rm \${outMacsNarrowPeak}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -810,6 +943,10 @@ process mergePeaksByGroupProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='mergePeaksByGroupProcess'
+    SAMPLE_NAME="${mergePeaksMap['group']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outGroupBed="${mergePeaksMap['group']}-group_merged_peaks_set.bed"
 
     zcat inBeds* \
@@ -829,6 +966,15 @@ process mergePeaksByGroupProcess {
       outBedList="\${outSample}-merge_by_group_beds.txt"
       echo "${mergePeaksMap['listBeds']}" > \${outBedList}
     done
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -865,6 +1011,10 @@ process mergePeaksByFileProcess {
 
     script:
     """
+    PROCESS_BLOCK='mergePeaksByFileProcess'
+    SAMPLE_NAME="${mergePeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outBed="${mergePeaksMap['sample']}-merged_peaks.bed"
     cat inBeds* \
         | cut -f1-3 \
@@ -874,6 +1024,15 @@ process mergePeaksByFileProcess {
 
     outBedList="${mergePeaksMap['sample']}-merge_by_file_beds.txt"
     echo "${mergePeaksMap['listBeds']}" > \${outBedList}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -915,12 +1074,25 @@ process makeWindowedGenomeIntervalsProcess {
         
 	script:
 	"""
+    PROCESS_BLOCK='makeWindowedGenomeIntervalsProcess'
+    SAMPLE_NAME="${inGenomeSizesMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outBed="${inGenomeSizesMap['sample']}-genomic_windows.bed"
 	
     bedtools makewindows \
         -g ${inGenomeSizes} \
         -w ${task.ext.window_size} \
         > \${outBed}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -952,13 +1124,30 @@ process makePromoterSumIntervalsProcess {
     script:
     if( inMap['hasGeneScoreBed'] == 1 )
     	"""
+        PROCESS_BLOCK='makePromoterSumIntervalsProcess'
+        SAMPLE_NAME="${inMap['sample']}"
+        START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     	outBed="${inMap['sample']}-gene_regions.bed.gz"
         
         zcat ${inMap['inBedFile']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}
         echo "Gene score bed file was used to define gene regions" > ${inMap['sample']}-gene_regions_note.txt
+
+        STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+        $script_dir/pipeline_logger.py \
+        -n \${SAMPLE_NAME} \
+        -p \${PROCESS_BLOCK} \
+        -v 'echo "NA"' \
+        -s \${START_TIME} \
+        -e \${STOP_TIME} \
+        -d ${log_dir}
         """
 	else
         """
+        PROCESS_BLOCK='makePromoterSumIntervalsProcess'
+        SAMPLE_NAME="${inMap['sample']}"
+        START_TIME=`date '+%Y%m%d:%H%M%S'`
+
         outBed="${inMap['sample']}-gene_regions.bed.gz"
         
         bedtools closest \
@@ -977,6 +1166,15 @@ process makePromoterSumIntervalsProcess {
         | sort -k1,1V -k2,2n -k3,3n \
         | uniq | gzip > \${outBed}
         echo "TSS definitions and peak locations were used to define gene regions (check this description)" > ${inMap['sample']}-gene_regions_note.txt
+
+        STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+        $script_dir/pipeline_logger.py \
+        -n \${SAMPLE_NAME} \
+        -p \${PROCESS_BLOCK} \
+        -v 'echo "NA"' \
+        -s \${START_TIME} \
+        -e \${STOP_TIME} \
+        -d ${log_dir}
         """
 }
 
@@ -1021,6 +1219,10 @@ process makeMergedPeakRegionCountsProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeMergedPeakRegionCountsProcess'
+    SAMPLE_NAME="${inMergedPeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1037,6 +1239,17 @@ process makeMergedPeakRegionCountsProcess {
         --output_file \${outCounts}
 
     rm \${tmpRegions}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1075,6 +1288,10 @@ process makeTssRegionCountsProcess {
 
     script:
     """
+    PROCESS_BLOCK='makeTssRegionCountsProcess'
+    SAMPLE_NAME="${inTssRegionMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1092,6 +1309,17 @@ process makeTssRegionCountsProcess {
         --output_file \${outCounts}
 
     rm \${tmpRegions}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -1132,9 +1360,22 @@ process makeCountReportsProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeCountReportsProcess'
+    SAMPLE_NAME="${inDuplicateReportMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outCountReport="${inDuplicateReportMap['sample']}-count_report.txt"
 	
     Rscript ${script_dir}/make_count_report.R ${inDuplicateReport} ${inMergedPeakRegionCounts} ${inTssRegionCounts} \${outCountReport}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1179,6 +1420,10 @@ process callCellsProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='callCellsProcess'
+    SAMPLE_NAME="${inCountReportMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1194,6 +1439,17 @@ process callCellsProcess {
     mv \${outCellWhiteList} cell_whitelist.txt.tmp
     sort cell_whitelist.txt.tmp > \${outCellWhiteList}
     rm cell_whitelist.txt.tmp
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1241,6 +1497,10 @@ process getPerBaseCoverageTssProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='getPerBaseCoverageTssProcess'
+    SAMPLE_NAME="${inTssRegionMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outCoverage="${inTssRegionMap['sample']}-tss_region_coverage.txt.gz"
 	tmpOut="${inTssRegionMap['sample']}-temp_file.gz"
 	
@@ -1256,6 +1516,15 @@ process getPerBaseCoverageTssProcess {
     Rscript ${script_dir}/aggregate_per_base_tss_region_counts.R \${tmpOut} \${outCoverage}
 
     rm \${tmpOut}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1306,6 +1575,10 @@ process makePeakMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makePeakMatrixProcess'
+    SAMPLE_NAME="${inMergedPeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1316,6 +1589,17 @@ process makePeakMatrixProcess {
     --intervals ${inMergedPeaks} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output \${outPeakMatrix}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1360,6 +1644,10 @@ process makeWindowMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeWindowMatrixProcess'
+    SAMPLE_NAME="${inWindowedIntervalsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1370,6 +1658,17 @@ process makeWindowMatrixProcess {
     --intervals ${inWindowedIntervals} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output \${outWindowMatrix}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1414,6 +1713,10 @@ process makePromoterMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makePromoterMatrixProcess'
+    SAMPLE_NAME="${inGeneRegionsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1429,6 +1732,17 @@ process makePromoterMatrixProcess {
     ${script_dir}/add_gene_metadata.py --in_promoter_matrix_row_name_file promoter_matrix_rows.txt.no_metadata \
                                        --gene_metadata_file ${inGeneRegionsMap['inGeneBodiesGeneMap']} \
                                        --out_promoter_matrix_row_name_file ${inGeneRegionsMap['inPromoterMatrixRows']}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1519,6 +1833,10 @@ process summarizeCellCallsProcess {
     
     script:
     """
+    PROCESS_BLOCK='summarizeCellCallsProcess'
+    SAMPLE_NAME="${inCountReportsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outSummaryPlot="${inCountReportsMap['sample']}-called_cells_summary.pdf"
     outSummaryStats="${inCountReportsMap['sample']}-called_cells_summary.stats.txt"
     
@@ -1538,6 +1856,15 @@ process summarizeCellCallsProcess {
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
         --plot \${outSummaryPlot} \
         --output_stats \${outSummaryStats} \${barnyardParams}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -1597,6 +1924,10 @@ process makeGenomeBrowserFilesProcess {
 
     script:
     """
+    PROCESS_BLOCK='makeGenomeBrowserFilesProcess'
+    SAMPLE_NAME="${inTssRegionsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outTssGb="${inTssRegionsMap['sample']}-${inTssRegionsMap['genome']}.tss_file.sorted.gb"
     outMergedPeaksGb="${inMergedPeaksMap['sample']}-merged_peaks.gb"
     outTranspositionSitesGb="${inTranspositionSitesMap['sample']}-transposition_sites.gb"
@@ -1615,6 +1946,15 @@ process makeGenomeBrowserFilesProcess {
     bedToBigBed -tab \${outTranspositionSitesGb}.bed chromosome_size.txt.edited \${outTranspositionSitesGb}.bb
     bgzip \${outTranspositionSitesGb}.bed
     tabix -p bed \${outTranspositionSitesGb}.bed.gz
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -1666,6 +2006,10 @@ process getBandingScoresProcess {
 
     script:
     """
+    PROCESS_BLOCK='getBandingScoresProcess'
+    SAMPLE_NAME="${inFragmentsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     # output filenames
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
@@ -1676,6 +2020,17 @@ process getBandingScoresProcess {
     python ${script_dir}/get_insert_size_distribution_per_cell.py ${inFragments} \${outPerCellInsertSizesFile} --barcodes ${inCellWhitelist}
     
     Rscript ${script_dir}/calculate_nucleosome_banding_scores.R \${outPerCellInsertSizesFile} \${outBandingScoresFile} --barcodes ${inCellWhitelist}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -1741,6 +2096,10 @@ process callMotifsProcess {
 		
 	script:
 	"""
+    PROCESS_BLOCK='callMotifsProcess'
+    SAMPLE_NAME="${inMergedPeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	source ${pipeline_path}/load_python_env_reqs.sh
 	source ${script_dir}/python_env/bin/activate
 	
@@ -1748,6 +2107,17 @@ process callMotifsProcess {
 	outGcBinned="${inMergedPeaksMap['sample']}-gc_\${gc_bin_padded}-peak_calls.bb"
 	
 	python ${script_dir}/call_peak_motifs.py ${inMergedPeaksMap['fasta']} ${inMergedPeaks} ${inMergedPeaksMap['motifs']} \${outGcBinned} --gc_bin ${inMergedPeaksMap['gc_bin']} --pwm_threshold ${task.ext.pwm_threshold}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1797,6 +2167,10 @@ process makeMotifMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeMotifMatrixProcess'
+    SAMPLE_NAME="${inPeakCallsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	source ${pipeline_path}/load_python_env_reqs.sh
 	source ${script_dir}/python_env/bin/activate
 	
@@ -1808,6 +2182,17 @@ process makeMotifMatrixProcess {
 	--peaks ${inMergedPeaks} \
 	--motifs ${inPeakCallsMap['motifs']} \
 	--peak_tf_matrix \${outPeakTfMatrix}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1884,10 +2269,14 @@ process makeReducedDimensionMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeReducedDimensionMatrixProcess'
+    SAMPLE_NAME="${inPeakMatrixMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     inPeakMatrix="${inPeakMatrixMap['sample']}-peak_matrix.mtx.gz"
     inSampleName="${inPeakMatrixMap['sample']}"
 
-   	 outScrubletHistFile="${inPeakMatrixMap['sample']}-scrublet_hist.png"
+ 	outScrubletHistFile="${inPeakMatrixMap['sample']}-scrublet_hist.png"
     outScrubletTableFile="${inPeakMatrixMap['sample']}-scrublet_table.csv"
 	outLsiCoordsFile="${inPeakMatrixMap['sample']}-lsi_coords.txt"
 	outUmapCoordsFile="${inPeakMatrixMap['sample']}-umap_coords.txt"
@@ -1973,6 +2362,15 @@ process makeReducedDimensionMatrixProcess {
     then
       touch "\${outBlackListRegionsFile}"
     fi
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -2001,6 +2399,10 @@ process experimentDashboardProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='experimentDashboardProcess'
+    SAMPLE_NAME="all"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	mkdir -p ${output_dir}/analyze_dash/js
 	${script_dir}/make_run_data.py -i ${output_dir}/analyze_out/args.json -o run_data.js
 	
@@ -2009,6 +2411,15 @@ process experimentDashboardProcess {
 	cp ${script_dir}/skeleton_dash/js/* ${output_dir}/analyze_dash/js
 	cp -r ${script_dir}/skeleton_dash/style ${output_dir}/analyze_dash
 	cp ${script_dir}/skeleton_dash/exp_dash.html ${output_dir}/analyze_dash
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -2047,6 +2458,10 @@ process makeMergedPlotFilesProcess {
 
     script:
     """
+    PROCESS_BLOCK='makeMergedPlotFilesProcess'
+    SAMPLE_NAME="NA"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     mkdir -p ${output_dir}/analyze_out/merged_plots
     ${script_dir}/merge_summary_plots.py -i ${output_dir}/analyze_out/args.json -o merged.called_cells_summary.pdf
     ${script_dir}/merge_umap_plots.py -i ${output_dir}/analyze_out/args.json -o merged.umap_plots.pdf
@@ -2061,6 +2476,15 @@ process makeMergedPlotFilesProcess {
     do
       tail -n +2 \${fil} >> \${stats_file}
     done
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'echo "NA"' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -2280,7 +2704,7 @@ def checkFile( fileName ) {
 /*
 ** Check directories for existence and/or accessibility.
 */
-def checkDirectories( params ) {
+def checkDirectories( params, log_dir ) {
 	def dirName
 	
 	/*
@@ -2296,6 +2720,11 @@ def checkDirectories( params ) {
 	*/
 	dirName = analyze_dir
 	makeDirectory( dirName )
+
+    /*
+    ** Check that either the log_dir exists or we can create it.
+    */
+    makeDirectory( log_dir )
 }
 
 
@@ -2799,7 +3228,7 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 	}
 	filesExpected.each { aFile ->
 		if( !( aFile in filesFound ) ) {
-			printErr( "Error: missing expected  file \'${aFile}\' in channel" )
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
 			System.exit( -1 )
 		}
 	}
