@@ -317,6 +317,7 @@ output_dir = params.output_dir.replaceAll("/\\z", "")
 demux_dir = output_dir + '/demux_out'
 analyze_dir = output_dir + '/analyze_out'
 log_dir = output_dir + '/analyze_log_dir'
+etc_dir = output_dir + '/etc'
 
 /*
 ** Check that required directories exist or can be made.
@@ -333,6 +334,16 @@ reportRunParams( params )
 */
 archiveRunFiles( params, timeNow )
 
+
+/*
+** Save workflow.runName to a file that can be
+** by logger in each process.
+** Note: using ${workflow.runName} in a process
+** causes the -resume to fail because the runName
+** changes from run-to-run.
+*/
+File file = new File("${etc_dir}/nextflow_run_name.txt")
+file.write("${workflow.runName}")
 
 /*
 ** ================================================================================
@@ -455,9 +466,10 @@ process sortTssBedProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'zcat --version | head -1' 'sort --version | head -1' 'gzip --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -499,9 +511,10 @@ process sortChromosomeSizeProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'sort --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -550,9 +563,10 @@ process sortPeakFileProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'sort --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -583,8 +597,6 @@ process runAlignProcess {
     errorStrategy onError
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.stderr", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.counts", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bed", mode: 'copy'
  
 	input:
 	val alignMap from runAlignInChannel
@@ -592,8 +604,7 @@ process runAlignProcess {
 	output:
 	file( "*.bam" ) into runAlignOutChannel
 	file( "*.stderr" ) into runAlignStderrChannel
-	file( "*.bed" ) into runAlignOutBedChannel
-	file( "*.counts" ) into runAlignOutCountChannel
+	file( "*.all_chr.bed.gz" ) into runAlignOutBedChannel
 
 	script:
 	"""
@@ -604,8 +615,8 @@ process runAlignProcess {
     bowtieBam="${alignMap['sample']}-${alignMap['lane']}.bowtie.bam.all_refs"
     bowtieStderr="${alignMap['sample']}-${alignMap['lane']}.bowtie.stderr"
 	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
-    outBed="${alignMap['sample']}-${alignMap['lane']}.bed"
-    outReadCounts="${alignMap['sample']}-${alignMap['lane']}.counts"
+    outMarkDupStderr="${alignMap['sample']}-${alignMap['lane']}.mark_dup.stderr"
+    outBed="${alignMap['sample']}-${alignMap['lane']}.all_chr.bed.gz"
 
     bowtie2 -3 1 \
 		-X 2000 \
@@ -615,44 +626,37 @@ process runAlignProcess {
 		-2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
         | samtools view -h -b -o \${bowtieBam} -
 
+    #
+    # Andrew's pipeline drops read alignments that are not
+    # to a 'primary' chromosome, meaning it removes
+    # alignments to Mt. The following filters, resulting
+    # in \${outBam}, are from Andrew's pipeline.
+    #
     samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS \${bowtieBam} > \${outBam}.tmp.bam
     samtools sort -T \${outBam}.sorttemp --threads 4 \${outBam}.tmp.bam -o \${outBam}
     rm \${outBam}.tmp.bam
 
     #
-    # Remove duplicate reads and form a bed file.
+    # For Mt read counting, remove duplicate read
+    # alignments from the full BAM file and form
+    # a bed file.
     #
-    samtools sort --threads 2 -n \${bowtieBam} \
-        | samtools fixmate -m - - \
-        | samtools sort --threads 2 \
-        | samtools markdup -r -s - - \
-        | samtools view -b \
-        | bedtools bamtobed -i - > \${outBed}
-    rm \${bowtieBam}
-
-    #
-    # Then
-    #   o  collect reads as adjacent pairs and collapse the pairs
-    #   o  drop the read counter to leave cell names, which are
-    #      equivalent to distinct inserts (unpaired)
-    #   o  count inserts by chromosome and cell 
-    #   o  reorder columns and sort by cell name and chromosome
-    #
-    awk '{split(\$4,parts,"/"); printf("%s\\t%s\\n",\$1,parts[1]);}' \${outBed} \
-        | uniq \
-        | awk '{split(\$2,parts,":"); printf("%s\\t%s\\n",\$1,parts[1]);}' \
-        | sort -k1,1V -k2,2 \
-        | uniq -c \
-        | awk '{printf("%s\\t%s\\t%d\\n",\$3,\$2,\$1)}' \
-        | sort -k1,1 -k2,2V > \${outReadCounts}
+    samtools fixmate -m -r -O sam -@ 2 \${bowtieBam} - \
+        | samtools sort -m 2G -@ 2 -O sam \
+        | samtools markdup -r -S -s -@ 2 - - 2> \${outMarkDupStderr} \
+        | bedtools bamtobed -i - \
+        | gzip > \${outBed}
+#    rm \${bowtieBam}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'bowtie2 --version | head -1' 'samtools --version | head -2' 'bedtools --version' 'awk --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
+    -f \${bowtieStderr} \
     -d ${log_dir}
 	"""
 }
@@ -697,13 +701,71 @@ process mergeBamsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'sambamba --version 2>&1 > /dev/null | head -2 | tail -1' 'samtools --version | head -2' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
 	"""
+}
+
+
+/*
+** ================================================================================
+** Evaluate mitochondrial reads.
+** ================================================================================
+*/
+
+runAlignOutBedChannel
+    .toList()
+    .flatMap{ countMitochondrialReadsChannelSetup( it, sampleLaneMap ) }
+    .set { countMitochondrialReadsInChannelBeds }
+
+process countMitochondrialReadsProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-mitochondrial_counts.txt", mode: 'copy'
+
+    input:
+    set file( inBeds ), inCountMitochondrialReadsMap from countMitochondrialReadsInChannelBeds
+
+    output:
+    file("*-mitochondrial_counts.txt") into countMitochondrialReadsOutChannel
+
+    script:
+    """
+    outReadCounts="${inCountMitochondrialReadsMap['sample']}-mitochondrial_counts.txt"
+
+    #  Notes:
+    #   o  the read names look like <cell>:<counter>/<fragment end>
+    #   o  remove the fragment end substring, leaving fragment names,
+    #      usually in pairs on the same chromosome.
+    #   o  put fragment pairs in adjacent rows by sorting on chromosome
+    #      and fragment names. (The read pairs may not be initially in
+    #      adjacent rows.)
+    #   o  collapse fragment name pairs using uniq
+    #   o  remove the counter substring, leaving cell identifiers
+    #      Each row represents a fragment. There are often multiple
+    #      identical (adjacent) rows. --check--
+    #   o  count fragments by chromosome and cell 
+    #   o  reorder columns and sort by cell name and chromosome
+    #
+    zcat ${inBeds} \
+        | awk '{split(\$4,parts,"/"); printf("%s\\t%s\\n",\$1,parts[1]);}' \
+        | sort -k 1,1V -k2,2 -S 2G \
+        | uniq \
+        | awk '{split(\$2,parts,":"); printf("%s\\t%s\\n",\$1,parts[1]);}' \
+        | uniq -c \
+        | awk '{printf("%s\\t%s\\t%d\\n",\$3,\$2,\$1)}' \
+        | sort -k1,1 -k2,2V -S 2G > cell_read_counts.txt
+
+    #
+    # This script calculates % mitochondrial reads per cell.
+    #
+    $script_dir/mitochondrial_statistics.py cell_read_counts.txt > \${outReadCounts}
+    """
 }
 
 
@@ -793,9 +855,10 @@ process getUniqueFragmentsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'bedtools --version | head -1' 'awk --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -888,9 +951,10 @@ process callPeaksProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' 'macs2 --version' 'sort --version | head -1' 'cut --version | head -1' 'gzip --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -969,9 +1033,10 @@ process mergePeaksByGroupProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'zcat --version | head -1' 'cut --version | head -1' 'bedtools --version' 'sort --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1027,9 +1092,10 @@ process mergePeaksByFileProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'cut --version | head -1' 'sort --version | head -1' 'bedtools --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1087,9 +1153,10 @@ process makeWindowedGenomeIntervalsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'bedtools --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1135,9 +1202,10 @@ process makePromoterSumIntervalsProcess {
 
         STOP_TIME=`date '+%Y%m%d:%H%M%S'`
         $script_dir/pipeline_logger.py \
+        -r `cat ${etc_dir}/nextflow_run_name.txt` \
         -n \${SAMPLE_NAME} \
         -p \${PROCESS_BLOCK} \
-        -v 'echo "NA"' \
+        -v 'zcat --version | head -1' 'sort --version | head -1' 'gzip --version | head -1' \
         -s \${START_TIME} \
         -e \${STOP_TIME} \
         -d ${log_dir}
@@ -1169,9 +1237,10 @@ process makePromoterSumIntervalsProcess {
 
         STOP_TIME=`date '+%Y%m%d:%H%M%S'`
         $script_dir/pipeline_logger.py \
+        -r `cat ${etc_dir}/nextflow_run_name.txt` \
         -n \${SAMPLE_NAME} \
         -p \${PROCESS_BLOCK} \
-        -v 'echo "NA"' \
+        -v 'bedtools --version' 'awk --version | head -1' 'cut --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' 'gzip --version | head -1' \
         -s \${START_TIME} \
         -e \${STOP_TIME} \
         -d ${log_dir}
@@ -1244,9 +1313,10 @@ process makeMergedPeakRegionCountsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'bedtools --version' 'gzip --version | head -1' 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1314,9 +1384,10 @@ process makeTssRegionCountsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'bedtools --version' 'gzip --version | head -1' 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1370,9 +1441,10 @@ process makeCountReportsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1444,9 +1516,10 @@ process callCellsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' 'sort --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1519,9 +1592,10 @@ process getPerBaseCoverageTssProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'bedtools --version' 'awk --version | head -1' 'gzip --version | head -1' 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1594,9 +1668,10 @@ process makePeakMatrixProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1663,9 +1738,10 @@ process makeWindowMatrixProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' 'bedtools --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1737,9 +1813,10 @@ process makePromoterMatrixProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1859,9 +1936,10 @@ process summarizeCellCallsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1949,9 +2027,10 @@ process makeGenomeBrowserFilesProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'awk --version | head -1' 'zcat --version | head -1' 'bedToBigBed 2>&1 > /dev/null | head -1' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'zcat --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2025,9 +2104,10 @@ process getBandingScoresProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2112,9 +2192,10 @@ process callMotifsProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'awk --version | head -1' 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2187,9 +2268,10 @@ process makeMotifMatrixProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2365,9 +2447,10 @@ process makeReducedDimensionMatrixProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2414,9 +2497,10 @@ process experimentDashboardProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2479,9 +2563,10 @@ process makeMergedPlotFilesProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
+    -r `cat ${etc_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'echo "NA"' \
+    -v 'python3 --version' 'sed --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2725,6 +2810,12 @@ def checkDirectories( params, log_dir ) {
     ** Check that either the log_dir exists or we can create it.
     */
     makeDirectory( log_dir )
+
+    /*
+    ** Check that either the etc_dir exists or we can create it.
+    */
+    dirName = etc_dir
+    makeDirectory( dirName )
 }
 
 
@@ -3257,6 +3348,72 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 	
 	return( outTuples )
 }
+
+
+/*
+** ================================================================================
+** Mitochondrial read count set up.
+** ================================================================================
+*/
+
+/*
+** Set up channel to count mitochondrial reads.
+** Notes:
+**   o  input file name format: <sample_name>-<run+lane_id>.bed
+**   o  check for expected files
+**   o  return a list of tuples where each tuple consists of a
+**      sample name string and a list of input bam file
+**      java/NextFlow paths. There is one entry for each sample.
+*/
+def countMitochondrialReadsChannelSetup( inPaths, sampleLaneMap ) {
+    /*
+    ** Check for expected bed files.
+    */
+    def filesExpected = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        lanes.each { aLane ->
+            def fileName = aSample + '-' + aLane + '.all_chr.bed.gz'
+            filesExpected.add( fileName )
+        }
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Gather input bed files.
+    ** Store them in a map of lists keyed by sample name.
+    */
+    def sampleLaneBedMap = [:]
+    samples.each { aSample ->
+        sampleLaneBedMap[aSample] = []
+    }
+    inPaths.each { aPath ->
+        def sampleName = aPath.getFileName().toString().split( '-' )[0]
+        sampleLaneBedMap[sampleName].add( aPath )
+    }
+   
+    /*
+    ** Set up output channel tuples.
+    */
+    def outTuples = []
+    samples.each { aSample ->
+        def tuple = new Tuple( sampleLaneBedMap[aSample], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+   
+    return( outTuples )
+}
+
 
 
 /*
