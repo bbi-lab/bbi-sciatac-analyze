@@ -7,7 +7,8 @@
         "tss": "/net/bbi/vol1/data/genomes/barnyard_atac/tss.bed.gz",
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes/barnyard_atac/gene_bodies_gene_map.txt",
         "bowtie_index": "/net/bbi/vol1/data/genomes/barnyard_atac/barnyard",
-        "macs_genome": "4.57e9"
+        "macs_genome": "4.57e9",
+        "aligner_memory": 12
     },
     "human": {
         "name": "human",
@@ -19,7 +20,8 @@
         "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
         "fasta": "/net/bbi/vol1/data/genomes/human_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/human_atac/human",
-        "macs_genome": "hs"
+        "macs_genome": "hs",
+        "aligner_memory": 8
     },
     "macaque": {
         "name": "macaque",
@@ -31,7 +33,8 @@
         "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
         "fasta": "/net/bbi/vol1/data/genomes/macaque_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/macaque_atac/macaque",
-        "macs_genome": "2.94e9"
+        "macs_genome": "2.94e9",
+        "aligner_memory": 8
     },
     "mouse": {
         "name": "mouse",
@@ -43,6 +46,7 @@
         "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
         "fasta": "/net/bbi/vol1/data/genomes/mouse_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/mouse_atac/mouse",
-        "macs_genome": "mm"
+        "macs_genome": "mm",
+        "aligner_memory": 8
     }
 }
