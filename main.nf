@@ -528,17 +528,24 @@ process sortPeakFileProcess {
 
 /*
 ** Run alignments.
+** Notes:
+**   o  bowtie2 memory requirements depend on the genome size
+**      so use genome dependent values specified in the
+**      genomes.json file.
+**   o  the SGE allocates an amount of memory equal to the
+**      product of the memory requested and the number of
+**      cpus requested. The number of cpus requested is given
+**      in the nextflow.config file.
+**   o  request memory in MB units rather than GB in case
+**      # GB / # cpus < 1.0
 */
-bowtie_cpus = params.bowtie_cpus < 8 ? params.bowtie_cpus : 8
-bowtie_memory = ( 36 + 0.25 * bowtie_cpus ) / bowtie_cpus
 
 Channel
 	.fromList( runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) )
 	.set { runAlignInChannel }
 
 process runAlignProcess {
-    cpus bowtie_cpus
-    memory "${bowtie_memory}G"
+    memory "${alignMap['aligner_memory'].multiply(1024.0).div(task.cpus).round()}MB"
 	cache 'lenient'
     errorStrategy onError
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
@@ -2736,7 +2743,9 @@ def getSortedSampleNames( sampleLaneMap ) {
 **        fastq1          name of fastq file of first reads (read pairs)
 **        fastq2          name of fastq file of second reads (read pairs)
 **        genome_index    path of aligner index directory/files for the required subject sequence
-**        whilelist       path of whitelist region .bed file
+**        whitelist       path of whitelist region .bed file
+**        aligner_memory  number of GB of memory to request for the runAlign process (integer).
+**                        (This value is divided by the number of requested cpus.)
 **        bamfile         path of output bam file
 */
 def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
@@ -2750,13 +2759,21 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 	samples.each { aSample ->
 		def lanes = sampleLaneMap[aSample]
 		lanes.each { aLane ->
-			def fastq1       = demuxDir + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
-			def fastq2       = demuxDir + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
-			def theRun       = aLane.split( '_' )[0]
-			def genome       = argsJson[theRun]['genomes'][aSample]
-			def genome_index = genomesJson[genome]['bowtie_index']
-			def whitelist    = genomesJson[genome]['whitelist_regions']
-			alignMaps.add( [ 'sample': aSample, 'lane': aLane, 'fastq1':fastq1, 'fastq2':fastq2, 'genome_index':genome_index, 'whitelist':whitelist, 'seed': seed ] )
+			def fastq1         = demuxDir + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+			def fastq2         = demuxDir + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+			def theRun         = aLane.split( '_' )[0]
+			def genome         = argsJson[theRun]['genomes'][aSample]
+			def genome_index   = genomesJson[genome]['bowtie_index']
+			def whitelist      = genomesJson[genome]['whitelist_regions']
+			def aligner_memory = genomesJson[genome]['aligner_memory']
+			alignMaps.add( [ 'sample': aSample,
+                             'lane': aLane,
+                             'fastq1':fastq1,
+                             'fastq2':fastq2,
+                             'genome_index':genome_index,
+                             'whitelist':whitelist,
+                             'aligner_memory': aligner_memory,
+                             'seed': seed ] )
 		}
 	}
 	
