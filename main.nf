@@ -283,7 +283,6 @@ params.motif_calling_gc_bins = 25
 **   boolean values: true/false
 */
 params.samples = null
-params.bowtie_cpus = 8
 params.bowtie_seed = null
 params.reads_threshold = null
 params.calculate_banding_scores = null
@@ -591,6 +590,14 @@ process sortPeakFileProcess {
 **      in the nextflow.config file.
 **   o  request memory in MB units rather than GB in case
 **      # GB / # cpus < 1.0
+**   o  processing:
+**        o  filter non-primary sequence alignments (keeping Mt
+**           alignments too) using samtools view
+**        o  divert Mt alignments to file ${outMito}.sam and
+**           pass remaining alignments
+**        o  filter out non-primary sequence alignments without
+**           Mt: this is likely useless here
+**        o  sort resulting alignment files
 */
 
 Channel
@@ -601,14 +608,16 @@ process runAlignProcess {
     memory "${alignMap['aligner_memory'].multiply(1024.0).div(task.cpus).round()}MB"
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*_L[0-9][0-9][0-9].bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.mito.bam", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.stderr", mode: 'copy'
  
 	input:
 	val alignMap from runAlignInChannel
 
 	output:
-	file( "*.bam" ) into runAlignOutChannel
+	file( "*_L[0-9][0-9][0-9].bam" ) into runAlignOutChannel
+    file( "*.mito.bam" ) into runAlignMitoOutChannel
 	file( "*.stderr" ) into runAlignStderrChannel
 
 	script:
@@ -617,9 +626,11 @@ process runAlignProcess {
     SAMPLE_NAME="${alignMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
-    bowtieBam="${alignMap['sample']}-${alignMap['lane']}.bowtie.bam.all_refs"
     bowtieStderr="${alignMap['sample']}-${alignMap['lane']}.bowtie.stderr"
+    samtoolsViewStderr="${alignMap['sample']}-${alignMap['lane']}.samtools_view.stderr"
+    samtoolsSortStderr="${alignMap['sample']}-${alignMap['lane']}.samtools_sort.stderr"
 	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
+    outMito="${alignMap['sample']}-${alignMap['lane']}.mito"
 
     bowtie2 -3 1 \
         -X 2000 \
@@ -627,9 +638,12 @@ process runAlignProcess {
         -x ${alignMap['genome_index']} \
         -1 ${alignMap['fastq1']} \
         -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
-        | samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > \${outBam}.tmp.bam
-    samtools sort -T \${outBam}.sorttemp --threads 4 \${outBam}.tmp.bam -o \${outBam}
-    rm \${outBam}.tmp.bam
+        | samtools view -h -L ${alignMap['whitelist_with_mt']} -f3 -F12 -q10 - 2> \${samtoolsViewStderr} \
+        | ${script_dir}/divert_mito_alignments.py -o \${outMito}.sam \
+        | samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}
+
+    samtools sort -T \${outMito}.sorttemp --threads 4 \${outMito}.sam -o \${outMito}.bam
+    rm \${bowtieMito}.sam
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
@@ -692,6 +706,56 @@ process mergeBamsProcess {
     -e \${STOP_TIME} \
     -d ${log_dir}
 	"""
+}
+
+
+/*
+** Merge mitochondrial alignment bam files.
+*/
+runAlignMitoOutChannel
+    .toList()
+    .flatMap { mergeMitoBamChannelSetup( it, sampleLaneMap ) }
+    .set { mergeMitoBamsInChannel }
+
+process mergeMitoBamsProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bai", mode: 'copy'
+
+    input:
+    set file( inMitoBams ), inMergeMitoBamMap from mergeMitoBamsInChannel
+
+    output:
+    file( "*" ) into mergeMitoBamsOutChannelBam
+   
+    script:
+    """
+    PROCESS_BLOCK='mergeMitoBamsProcess'
+    SAMPLE_NAME="${inMergeMitoBamMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    outMitoBam="${inMergeMitoBamMap['sample']}-merged.mito.bam"
+   
+    sambamba merge --nthreads ${task.cpus} \${outMitoBam} ${inMitoBams}
+    samtools index \${outMitoBam}
+
+    mkdir -p ${analyze_dir}/${inMergeMitoBamMap['sample']}/genome_browser
+    pushd ${analyze_dir}/${inMergeMitoBamMap['sample']}/genome_browser
+    ln -sf ../merge_bams/\${outMitoBam} .
+    ln -sf ../merge_bams/\${outMitoBam}.bai .
+    popd
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sambamba --version 2>&1 > /dev/null | head -2 | tail -1' 'samtools --version | head -2' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
+    """
 }
 
 
@@ -812,9 +876,6 @@ process getUniqueFragmentsProcess {
 	outInsertSizes="${inUniqueFragmentsMap['sample']}-insert_sizes.txt"
 	outDuplicateReport="${inUniqueFragmentsMap['sample']}-duplicate_report.txt"
 	
-	fragments_uncompressed=`echo "${inUniqueFragmentsMap['fragments_file']}" | sed 's/.gz//'`
-	transposition_sites_uncompressed=`echo "${inUniqueFragmentsMap['transposition_sites_file']}" | sed 's/.gz//'`
-
 	python ${script_dir}/get_unique_fragments.py \
 		${inBam} \
 		--fragments \${outFragments} \
@@ -867,7 +928,77 @@ getUniqueFragmentsOutChannelTranspositionSites
 getUniqueFragmentOutChannelFragments
 	.set { getUniqueFragmentOutChannelFragmentsCopy01 }
 	
+
+
+/*
+** Dedup mitochondrial fragments.
+*/
+mergeMitoBamsOutChannelBam
+    .flatten()
+	.toList()
+	.flatMap { getUniqueFragmentsMitoChannelSetupBam( it, sampleSortedNames ) }   <- set up this function
+	.set { getUniqueFragmentsMitoInChannelBam }
+
+process getUniqueFragmentsMitoProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.transposition_sites.bed.gz*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.fragments.txt.gz*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.insert_sizes.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.duplicate_report.txt", mode: 'copy'
+    
+	input:
+	set file( inMitoBam ), file(inMitoBai), inUniqueFragmentsMitoMap from getUniqueFragmentsMitoInChannelBam
+
+	output:
+	file( "*-mito.transposition_sites.bed.gz*" ) into getUniqueFragmentsMitoOutChannelTranspositionSites  // get both -transposition_sites.bed.gz and -transposition_sites.bed.gz.tbi files
+	file( "*-mito.fragments.txt.gz*" ) into getUniqueFragmentMitoOutChannelFragments  // get both -fragments.txt.gz and -fragments.txt.gz.tbi files
+	file( "*-mito.insert_sizes.txt" ) into getUniqueFragmentsMitoOutChannelInsertSizeDistribution
+	file( "*-mito.duplicate_report.txt" ) into getUniqueFragmentsMitoOutChannelDuplicateReport
+		
+	script:
+	"""
+    PROCESS_BLOCK='getUniqueFragmentsMitoProcess'
+    SAMPLE_NAME="${inUniqueFragmentsMitoMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+	source ${pipeline_path}/load_python_env_reqs.sh
+	source ${script_dir}/python_env/bin/activate
+
+	outMitoFragments="${inUniqueFragmentsMitoMap['sample']}-mito.fragments.txt"
+	outMitoTranspositionSites="${inUniqueFragmentsMitoMap['sample']}-mito.transposition_sites.bed"
+	outMitoInsertSizes="${inUniqueFragmentsMitoMap['sample']}-mito.insert_sizes.txt"
+	outMitoDuplicateReport="${inUniqueFragmentsMitoMap['sample']}-mito.duplicate_report.txt"
 	
+	python ${script_dir}/get_unique_fragments.py \
+		${inMitoBam} \
+		--fragments \${outMitoFragments} \
+		--transposition_sites_bed \${outMitoTranspositionSites} \
+		--duplicate_read_counts \${outMitoDuplicateReport} \
+		--insert_sizes \${outMitoInsertSizes}
+
+	# Index BAM file / bgzip tabix index for fragments file and transposition_sites BED
+	bgzip -f \${outMitoFragments}
+	tabix -p bed \${outMitoFragments}.gz
+
+	bgzip -f \${outMitoTranspositionSites}
+	tabix -p bed \${outMitoTranspositionSites}.gz
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'bedtools --version | head -1' 'awk --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
+	"""
+}
+
+
 /*
 ** ================================================================================
 ** Call peaks.
@@ -1852,7 +1983,7 @@ callPeaksOutChannelNarrowPeakCopy02
 
 mergePeaksByFileOutChannelCopy04
     .toList()
-    .flatMap { summarizeCellCallsSetupMergedPeaks( it, sampleSortedNames ) }
+    .flatMap { summarizeCellCallsSetupMergedPeaks( it, sampleSortedNames, samplePeakGroupMap, samplePeakFileMap ) }
     .set { summarizeCellCallsInChannelMergedPeaks }
     
 getPerBaseCoverageTssOutChannel
@@ -1907,12 +2038,28 @@ process summarizeCellCallsProcess {
     then
         barnyardParams="--window_matrices ${inWindowMatrix} --barnyard"
     fi
-    
+
+    if [ "${inMergedPeaksMap['peak_group']}" != "" ]
+    then
+      PEAK_GROUP=${inMergedPeaksMap['peak_group']}
+    else
+      PEAK_GROUP="-"
+    fi
+
+    if [ "${inMergedPeaksMap['peak_file']}" != "" ]
+    then
+      PEAK_FILE=`basename ${inMergedPeaksMap['peak_file']}`
+    else
+      PEAK_FILE="-"
+    fi
+
     Rscript ${script_dir}/summarize_cell_calls.R \
         --sample_name ${inCountReportsMap['sample']} \
         --read_count_tables ${inCountReports} \
         --stats_files ${inCalledCellStats} \
         --insert_size_tables ${inInsertSizes} \
+        --peak_groups \${PEAK_GROUP} \
+        --peak_files \${PEAK_FILE} \
         --peak_call_files ${inNarrowPeaks} \
         --merged_peaks ${inMergedPeaks} \
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
@@ -2650,7 +2797,6 @@ def writeHelp() {
     log.info '    params.genomes_json = GENOMES_JSON               A json file of genome information for analyses.'
     log.info ''
     log.info 'Optional parameters (specify in your config file):'
-    log.info '    params.bowtie_cpus = CPUS (int)                  Number of threads in bowtie run.'
     log.info '    params.bowtie_memory = MEMORY (int)              Amount of memory in bowtie run.'
     log.info '    params.bowtie_seed = SEED (int)                  Bowtie random number generator seed.'
     log.info '    params.doublet_predict VALUE (logical)           Run double prediction.'
@@ -2676,6 +2822,8 @@ def reportRunParams( params ) {
 	s += String.format( "Analysis output directory:            %s\n", analyze_dir )
     s += String.format( "Launch directory:                     %s\n", workflow.launchDir )
     s += String.format( "Work directory:                       %s\n", workflow.workDir )
+    s += String.format( "Genomes json file:                    %s\n", params.genomes_json )
+
 	if( params.samples != null ) {
 		s += String.format( "Samples to include in analysis:   %s\n", params.samples )
 	}
@@ -3263,13 +3411,15 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 			def genome         = argsJson[theRun]['genomes'][aSample]
 			def genome_index   = genomesJson[genome]['bowtie_index']
 			def whitelist      = genomesJson[genome]['whitelist_regions']
+            def whitelist_with_mt = genomesJson[genome]['whitelist_with_mt_regions']
 			def aligner_memory = genomesJson[genome]['aligner_memory']
 			alignMaps.add( [ 'sample': aSample,
                              'lane': aLane,
-                             'fastq1':fastq1,
-                             'fastq2':fastq2,
-                             'genome_index':genome_index,
-                             'whitelist':whitelist,
+                             'fastq1': fastq1,
+                             'fastq2': fastq2,
+                             'genome_index': genome_index,
+                             'whitelist': whitelist,
+                             'whitelist_with_mt': whitelist_with_mt,
                              'aligner_memory': aligner_memory,
                              'seed': seed ] )
 		}
@@ -3342,6 +3492,66 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 	}
 	
 	return( outTuples )
+}
+
+
+/*
+** Set up channel to merge mitochondrial bam files.
+** Notes:
+**   o  input file name format: <sample_name>-<run+lane_id>.mito.bam
+**   o  output file name format: <sample_name>.mito.bam
+**   o  check for expected files
+**   o  return a list of tuples where each tuple consists of an
+**      output filename string and a list of input bam file
+**      java/NextFlow paths. There is one entry for each sample.
+*/
+def mergeMitoBamChannelSetup( inPaths, sampleLaneMap ) {
+    /*
+    ** Check for expected BAM files.
+    */
+    def filesExpected = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        lanes.each { aLane ->
+            def fileName = aSample + '-' + aLane + 'mito.bam'
+            filesExpected.add( fileName )
+        }
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Gather input bam files.
+    ** Store them in a map of lists keyed by sample name.
+    */
+    def sampleLaneBamMap = [:]
+    samples.each { aSample ->
+        sampleLaneBamMap[aSample] = []
+    }
+    inPaths.each { aPath ->
+        def sampleName = aPath.getFileName().toString().split( '-' )[0]
+        sampleLaneBamMap[sampleName].add( aPath )
+    }
+
+    /*
+    ** Set up output channel tuples.
+    */
+    def outTuples = []
+    samples.each { aSample ->
+        def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+   
+    return( outTuples )
 }
 
 
@@ -3519,6 +3729,76 @@ def getUniqueFragmentsChannelSetupChromosomeSizes( inPaths, sampleSortedNames, s
     }
 
     return( outTuples )
+}
+
+/* mito versions */
+
+/*
+** Set up channel to get unique alignment fragments; BAM and BAI files(dedup).
+** Notes:
+** input list of files where file name format: <sample>-merged.bam and <sample>-merged.bam.bai
+** output: list of tuples in which each tuple consists of [0] bam filename,
+**         [1] bai filename, and [2] map of output filenames
+*/
+def getUniqueFragmentsMitoChannelSetupBam( inPaths, sampleSortedNames ) {
+	/*
+	** Check for expected BAM files.
+	*/
+	def filesExpected = []
+	sampleSortedNames.each { aSample ->
+		def fileName = aSample + '-merged.mito.bam'
+		filesExpected.add( fileName )
+	}
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+    	if( !( aFile in filesFound ) ) {
+    		printErr( "Error: missing expected file \'${aFile}\' in channel" )
+    		System.exit( -1 )
+    	}
+    }
+
+    /*
+    ** Deal with a mix of *-merged.mito.bam and *-merged.mito.bam.bai files.
+    ** Notes:
+    **   o  NextFlow stores the pairs of files as a list of two
+    **      files so the elements in inPaths is a list of a list
+    **      of paths.
+    **   o  I put both of the files in the output channel in order
+    **      to be certain that NextFlow makes the required symbolic
+    **      links in the work directory.
+    */
+    def pathMap = [:]
+    sampleSortedNames.each { aSample ->
+        pathMap[aSample] = [:]
+    }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /merged[.]mito[.]bam$/ ) {
+            pathMap[aSample]['bam'] = aPath
+        } else if( aFile =~ /merged[.]mito[.]bam[.]bai$/ ) {
+            pathMap[aSample]['bai'] = aPath
+        } else {
+            println "Warning: getUniqueFragmentsChannelSetupBam: unexpected file \'${fileName}\'"
+        }
+    }
+    
+	/*
+	** Set up output channel tuples.
+	*/
+    
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inBam = pathMap[aSample]['bam']
+        def inBai = pathMap[aSample]['bai']
+        def tuple = new Tuple( inBam, inBai, [ 'sample':aSample ] )
+        outTuples.add( tuple )
+    }
+        
+	return( outTuples )
 }
 
 
@@ -4988,7 +5268,7 @@ def summarizeCellCallsSetupNarrowPeak( inPaths, sampleSortedNames ) {
 }
 
 
-def summarizeCellCallsSetupMergedPeaks( inPaths, sampleSortedNames ) {
+def summarizeCellCallsSetupMergedPeaks( inPaths, sampleSortedNames, samplePeakGroupMap, samplePeakFileMap ) {
     /*
     ** Check for expected input pathss.
     */
@@ -5009,7 +5289,7 @@ def summarizeCellCallsSetupMergedPeaks( inPaths, sampleSortedNames ) {
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def inMergedPeaks = aSample + '-merged_peaks.bed'
-        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample ] )
+        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample, 'peak_group': samplePeakGroupMap[aSample], 'peak_file': samplePeakFileMap[aSample] ] )
         outTuples.add( tuple )
     }
     

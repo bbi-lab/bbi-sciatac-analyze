@@ -69,9 +69,11 @@ bloom_collision <- function(n1, n2, n12){
 
 parser = argparse::ArgumentParser(description='Script to make summary plots of cell calling results and other basic summary stats.')
 parser$add_argument('--stats_files', nargs='+', required=TRUE, help='List of all JSON files containing cell calling stats.')
-parser$add_argument('--sample_name', nargs='+', required=TRUE, help='Sample name.')
+parser$add_argument('--sample_names', nargs='+', required=TRUE, help='Sample names.')
 parser$add_argument('--read_count_tables', nargs='+', required=TRUE, help='Original read count tables (not thresholded).')
 parser$add_argument('--insert_size_tables', nargs='+', required=TRUE, help='Insert size distribution tables.')
+parser$add_argument('--peak_groups', nargs='+', required=TRUE, help='Peak groups assigned to sample.')
+parser$add_argument('--peak_files', nargs='+', required=TRUE, help='External peak files assigned to sample.')
 parser$add_argument('--peak_call_files', nargs='+', required=TRUE, help='BED files with peak calls.')
 parser$add_argument('--merged_peaks', required=TRUE, help='BED file with merged peak set.')
 parser$add_argument('--per_base_tss_region_coverage_files', nargs='+', required=TRUE, help='Set of files with per base coverage for TSS regions.')
@@ -91,7 +93,9 @@ par(mfrow=c(3,2))
 output_stats = lapply(1:length(args$stats_files), function(i) {
   sample_stats = rjson::fromJSON(file=args$stats_files[[i]])
 #   sample_name = stringr::str_replace(basename(args$stats_files[[i]]), '.stats.json', '')
-  sample_name = args$sample_name
+  sample_name = args$sample_name[[i]]
+  peak_group = args$peak_groups[[i]]
+  peak_file = args$peak_files[[i]]
   message(glue('Processing {sample_name}...'))
 
   # read count table file format
@@ -263,7 +267,9 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   legend("topright",
     c(paste0("\n Median FRiP: ", round(median_per_cell_frip, 4)),
     paste0("\n Sample Peaks: ", sample_peak_counts),
-    paste0("\n Total Merged Peaks: ", total_merged_peaks)),
+    paste0("\n Total Merged Peaks: ", total_merged_peaks),
+    paste0("\n Peak group: ", peak_group),
+    paste0("\n Peak file: ", peak_file)),
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
 
   file_name <- paste0(args$sample_name, '-frip.png')
@@ -274,7 +280,9 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   legend("topright",
     c(paste0("\n Median FRiP: ", round(median_per_cell_frip, 4)),
     paste0("\n Sample Peaks: ", sample_peak_counts),
-    paste0("\n Total Merged Peaks: ", total_merged_peaks)),
+    paste0("\n Total Merged Peaks: ", total_merged_peaks),
+    paste0("\n Peak group: ", peak_group),
+    paste0("\n Peak file: ", peak_file)),
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
   dev.off()
   
