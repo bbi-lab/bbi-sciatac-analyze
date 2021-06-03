@@ -283,7 +283,6 @@ params.motif_calling_gc_bins = 25
 **   boolean values: true/false
 */
 params.samples = null
-params.bowtie_cpus = 8
 params.bowtie_seed = null
 params.reads_threshold = null
 params.calculate_banding_scores = null
@@ -2163,8 +2162,6 @@ def writeHelp() {
     log.info '    params.genomes_json = GENOMES_JSON               A json file of genome information for analyses.'
     log.info ''
     log.info 'Optional parameters (specify in your config file):'
-    log.info '    params.bowtie_cpus = CPUS (int)                  Number of threads in bowtie run.'
-    log.info '    params.bowtie_memory = MEMORY (int)              Amount of memory in bowtie run.'
     log.info '    params.bowtie_seed = SEED (int)                  Bowtie random number generator seed.'
     log.info '    params.doublet_predict VALUE (logical)           Run double prediction.'
     log.info '    params.filter_blacklist_regions VALUE (logical)  Filter blacklisted genomic regions when preprocessing the cell_data_set.'
@@ -2189,6 +2186,8 @@ def reportRunParams( params ) {
 	s += String.format( "Analysis output directory:            %s\n", analyze_dir )
     s += String.format( "Launch directory:                     %s\n", workflow.launchDir )
     s += String.format( "Work directory:                       %s\n", workflow.workDir )
+    s += String.format( "Genomes json file:                    %s\n", params.genomes_json )
+
 	if( params.samples != null ) {
 		s += String.format( "Samples to include in analysis:   %s\n", params.samples )
 	}
