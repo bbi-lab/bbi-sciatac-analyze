@@ -8,7 +8,7 @@
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes/barnyard_atac/gene_bodies_gene_map.txt",
         "bowtie_index": "/net/bbi/vol1/data/genomes/barnyard_atac/barnyard",
         "macs_genome": "4.57e9",
-        "aligner_memory": 16
+        "aligner_memory": 12
     },
     "human": {
         "name": "human",
@@ -21,7 +21,7 @@
         "fasta": "/net/bbi/vol1/data/genomes/human_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/human_atac/human",
         "macs_genome": "hs",
-        "aligner_memory": 16
+        "aligner_memory": 8
     },
     "macaque": {
         "name": "macaque",
@@ -34,7 +34,7 @@
         "fasta": "/net/bbi/vol1/data/genomes/macaque_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/macaque_atac/macaque",
         "macs_genome": "2.94e9",
-        "aligner_memory": 16
+        "aligner_memory": 8
     },
     "mouse": {
         "name": "mouse",
@@ -47,6 +47,6 @@
         "fasta": "/net/bbi/vol1/data/genomes/mouse_atac/xxx",
         "bowtie_index": "/net/bbi/vol1/data/genomes/mouse_atac/mouse",
         "macs_genome": "mm",
-        "aligner_memory": 16
+        "aligner_memory": 8
     }
 }

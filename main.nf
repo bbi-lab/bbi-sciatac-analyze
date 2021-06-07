@@ -286,6 +286,7 @@ params.samples = null
 params.bowtie_seed = null
 params.reads_threshold = null
 params.calculate_banding_scores = null
+params.make_genome_browser_files = null
 params.doublet_predict = true
 params.filter_blacklist_regions = true
 
@@ -321,7 +322,7 @@ tmp_dir = output_dir + '/tmp'
 /*
 ** Check that required directories exist or can be made.
 */
-checkDirectories( params, log_dir )
+checkDirectories( params, log_dir, tmp_dir )
 
 /*
 ** Report run parameter values.
@@ -340,8 +341,8 @@ archiveRunFiles( params, timeNow )
 ** causes the -resume to fail because the runName
 ** changes from run-to-run.
 */
-File file = new File("${tmp_dir}/nextflow_run_name.txt")
-file.write("${workflow.runName}")
+File tfile = new File("${tmp_dir}/nextflow_run_name.txt")
+tfile.write("${workflow.runName}")
 
 /*
 ** ================================================================================
@@ -2132,6 +2133,9 @@ process makeGenomeBrowserFilesProcess {
     file( "*-merged_peaks.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelMergedPeaksBB
     file( "*-transposition_sites.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelTranspositionSitesBB
 
+    when:
+		params.make_genome_browser_files
+
     script:
     """
     PROCESS_BLOCK='makeGenomeBrowserFilesProcess'
@@ -2922,13 +2926,13 @@ def checkFile( fileName ) {
 /*
 ** Check directories for existence and/or accessibility.
 */
-def checkDirectories( params, log_dir ) {
+def checkDirectories( params, log_dir, tmp_dir ) {
 	def dirName
 	
 	/*
 	** Check that demux_dir exists.
 	*/
-	dirName = demux_dir
+	dirName = params.demux_dir
 	if( !checkDirectory( dirName ) ) {
 		System.exit( -1 )
 	}
@@ -2936,7 +2940,7 @@ def checkDirectories( params, log_dir ) {
 	/*
 	** Check that either the analyze_dir exists or we can create it.
 	*/
-	dirName = analyze_dir
+	dirName = params.analyze_dir
 	makeDirectory( dirName )
 
     /*
