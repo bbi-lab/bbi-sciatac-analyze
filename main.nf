@@ -596,7 +596,7 @@ process mergeBamsProcess {
 	"""
 	outBam="${inMergeBamMap['sample']}-merged.bam"
 	
-	sambamba merge --nthreads 8 \${outBam} ${inBams}
+	sambamba merge --nthreads ${task.cpus} \${outBam} ${inBams}
 	samtools index \${outBam}
 
     mkdir -p ${analyze_dir}/${inMergeBamMap['sample']}/genome_browser
