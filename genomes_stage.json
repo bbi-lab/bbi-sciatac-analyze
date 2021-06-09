@@ -9,7 +9,7 @@
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes_stage/barnyard/barnyard_atac/gene_bodies_gene_map.txt",
         "bowtie_index": "/net/bbi/vol1/data/genomes_stage/barnyard/barnyard_atac/barnyard",
         "macs_genome": "4.57e9",
-        "aligner_memory": 12
+        "aligner_memory": 16
     },
     "human": {
         "name": "human",
@@ -24,7 +24,7 @@
         "fasta": "/net/bbi/vol1/data/genomes_stage/human/human_atac/Homo_sapiens.GRCh38.dna.toplevel.fa.finished",
         "bowtie_index": "/net/bbi/vol1/data/genomes_stage/human/human_atac/human",
         "macs_genome": "hs",
-        "aligner_memory": 8
+        "aligner_memory": 12
     },
     "macaque": {
         "name": "macaque",
@@ -38,7 +38,7 @@
         "fasta": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/Macaca_mulatta.Mmul_10.dna.toplevel.fa.finished",
         "bowtie_index": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/macaque",
         "macs_genome": "2.94e9",
-        "aligner_memory": 8
+        "aligner_memory": 12
     },
     "mouse": {
         "name": "mouse",
@@ -53,6 +53,6 @@
         "fasta": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/Mus_musculus.GRCm38.dna.toplevel.fa.finished",
         "bowtie_index": "/net/bbi/vol1/data/genomes_stage/mouse/mouse_atac/mouse",
         "macs_genome": "mm",
-        "aligner_memory": 8
+        "aligner_memory": 12
     }
 }

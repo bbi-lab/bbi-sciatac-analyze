@@ -118,6 +118,11 @@
 **               }
 **
 ** Notes on this script
+**  o  the memory directive for the aligner is set in the genomes.json file
+**     because the aligner memory depends on the genome size. The aligner
+**     memory request is divided by the number of requested cpus in main.nf.
+**     The memory requests for all other processes is not divided by the
+**     number of requested cpus.
 **  o  I have tried to keep the comments accurate but I am certain that there
 **     are instances in which I cut and pasted and forgot to edit the strings,
 **     or I edited the code and some comments/strings no longer describe
@@ -196,9 +201,9 @@
 **      remove dependencies on specific genome versions
 **   o  add/update genomes
 **   o  add dashboards/statistics
-**   o  add plots for Cailyn
+**   o  add plots for Cailyn (done)
 **   o  compact functions where possible
-**   o  write program for aggregating runs
+**   o  write program for aggregating runs (done: use script to concatenate fastq files)
 **   o  consider using string variables for filenames (define the variables in the process class: try to define processes that create (output) the files)
 **   o  update file_map.docx
 **   o  write JSON args.json file (perhaps write a sample-specific JSON file to each sample directory) (done)
@@ -644,7 +649,7 @@ process runAlignProcess {
         | samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}
 
     samtools sort -T \${outMito}.sorttemp --threads 4 \${outMito}.sam -o \${outMito}.bam
-    rm \${bowtieMito}.sam
+    rm \${outMito}.sam
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
@@ -929,15 +934,13 @@ getUniqueFragmentsOutChannelTranspositionSites
 getUniqueFragmentOutChannelFragments
 	.set { getUniqueFragmentOutChannelFragmentsCopy01 }
 	
-
-
 /*
 ** Dedup mitochondrial fragments.
 */
 mergeMitoBamsOutChannelBam
     .flatten()
 	.toList()
-	.flatMap { getUniqueFragmentsMitoChannelSetupBam( it, sampleSortedNames ) }   <- set up this function
+	.flatMap { getUniqueFragmentsMitoChannelSetupBam( it, sampleSortedNames ) }
 	.set { getUniqueFragmentsMitoInChannelBam }
 
 process getUniqueFragmentsMitoProcess {
@@ -2035,7 +2038,7 @@ process summarizeCellCallsProcess {
     outSummaryStats="${inCountReportsMap['sample']}-called_cells_summary.stats.txt"
     
     barnyardParams=""
-    if [ "${inBarnyardMap['isBarnyard']}" == 1 ]
+    if [ "${inBarnyardMap['isBarnyard']}" = 1 ]
     then
         barnyardParams="--window_matrices ${inWindowMatrix} --barnyard"
     fi
@@ -2510,7 +2513,7 @@ process makeReducedDimensionMatrixProcess {
 	doublet_predict_top_ntile=$task.ext.doublet_predict_top_ntile
 
     doublet_predict=""
-    if [ "${params.doublet_predict}" ]
+    if [ "${params.doublet_predict}" = "true" ]
     then
         doublet_predict=" --doublet_predict "
     fi
@@ -2518,7 +2521,7 @@ process makeReducedDimensionMatrixProcess {
     black_list_file=""
     echo "blacklist_regions: ${inPeakMatrixMap['blacklist_regions']}"
 
-    if [[ "${params.filter_blacklist_regions}" == "true" && "${inPeakMatrixMap['blacklist_regions']}" != "" ]]
+    if [[ "${params.filter_blacklist_regions}" = "true" && "${inPeakMatrixMap['blacklist_regions']}" != "" ]]
     then
         black_list_file=" --black_list_file ${inPeakMatrixMap['blacklist_regions']} "
         echo "blacklist_region file: ${inPeakMatrixMap['blacklist_regions']}" > \${outBlackListRegionsFile}
@@ -2526,7 +2529,7 @@ process makeReducedDimensionMatrixProcess {
       echo "blacklist_region file: none" > \${outBlackListRegionsFile}
     fi
 
-    if [ "${params.doublet_predict}" ]
+    if [ "${params.doublet_predict}" = "true" ]
     then
         $script_dir/run_scrublet.py --sample_name=\${inSampleName} --mat_file=\${inPeakMatrix} --umi_cutoff=\$umi_cutoff
     fi
@@ -2932,7 +2935,7 @@ def checkDirectories( params, log_dir, tmp_dir ) {
 	/*
 	** Check that demux_dir exists.
 	*/
-	dirName = params.demux_dir
+	dirName = demux_dir
 	if( !checkDirectory( dirName ) ) {
 		System.exit( -1 )
 	}
@@ -2940,7 +2943,7 @@ def checkDirectories( params, log_dir, tmp_dir ) {
 	/*
 	** Check that either the analyze_dir exists or we can create it.
 	*/
-	dirName = params.analyze_dir
+	dirName = analyze_dir
 	makeDirectory( dirName )
 
     /*
@@ -3518,7 +3521,7 @@ def mergeMitoBamChannelSetup( inPaths, sampleLaneMap ) {
     samples.each { aSample ->
         def lanes = sampleLaneMap[aSample]
         lanes.each { aLane ->
-            def fileName = aSample + '-' + aLane + 'mito.bam'
+            def fileName = aSample + '-' + aLane + '.mito.bam'
             filesExpected.add( fileName )
         }
     }
