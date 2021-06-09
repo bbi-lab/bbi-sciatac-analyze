@@ -1529,7 +1529,7 @@ process summarizeCellCallsProcess {
     outSummaryStats="${inCountReportsMap['sample']}-called_cells_summary.stats.txt"
     
     barnyardParams=""
-    if [ "${inBarnyardMap['isBarnyard']}" == 1 ]
+    if [ "${inBarnyardMap['isBarnyard']}" = 1 ]
     then
         barnyardParams="--window_matrices ${inWindowMatrix} --barnyard"
     fi
@@ -1909,7 +1909,7 @@ process makeReducedDimensionMatrixProcess {
 	doublet_predict_top_ntile=$task.ext.doublet_predict_top_ntile
 
     doublet_predict=""
-    if [ "${params.doublet_predict}" ]
+    if [ "${params.doublet_predict}" = "true" ]
     then
         doublet_predict=" --doublet_predict "
     fi
@@ -1917,7 +1917,7 @@ process makeReducedDimensionMatrixProcess {
     black_list_file=""
     echo "blacklist_regions: ${inPeakMatrixMap['blacklist_regions']}"
 
-    if [[ "${params.filter_blacklist_regions}" == "true" && "${inPeakMatrixMap['blacklist_regions']}" != "" ]]
+    if [[ "${params.filter_blacklist_regions}" = "true" && "${inPeakMatrixMap['blacklist_regions']}" != "" ]]
     then
         black_list_file=" --black_list_file ${inPeakMatrixMap['blacklist_regions']} "
         echo "blacklist_region file: ${inPeakMatrixMap['blacklist_regions']}" > \${outBlackListRegionsFile}
@@ -1925,7 +1925,7 @@ process makeReducedDimensionMatrixProcess {
       echo "blacklist_region file: none" > \${outBlackListRegionsFile}
     fi
 
-    if [ "${params.doublet_predict}" ]
+    if [ "${params.doublet_predict}" = "true" ]
     then
         $script_dir/run_scrublet.py --sample_name=\${inSampleName} --mat_file=\${inPeakMatrix} --umi_cutoff=\$umi_cutoff
     fi

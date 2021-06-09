@@ -192,7 +192,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     # filter cells
     ######################################################################################
     # load summary stats for adding to col Data and reorder to match Cell order in matrices
-    cDat <- read.table(count_file, head = TRUE)
+    cDat <- read.table(count_file, header = TRUE)
     cDat_f <- cDat[match(colnames(pMat), cDat$cell),]
 
     row.names(cDat_f) <- cDat_f$cell
