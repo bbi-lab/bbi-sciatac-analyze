@@ -1482,7 +1482,7 @@ callPeaksOutChannelNarrowPeakCopy02
 
 mergePeaksByFileOutChannelCopy04
     .toList()
-    .flatMap { summarizeCellCallsSetupMergedPeaks( it, sampleSortedNames ) }
+    .flatMap { summarizeCellCallsSetupMergedPeaks( it, sampleSortedNames, samplePeakGroupMap, samplePeakFileMap ) }
     .set { summarizeCellCallsInChannelMergedPeaks }
     
 getPerBaseCoverageTssOutChannel
@@ -1527,18 +1527,34 @@ process summarizeCellCallsProcess {
     """
     outSummaryPlot="${inCountReportsMap['sample']}-called_cells_summary.pdf"
     outSummaryStats="${inCountReportsMap['sample']}-called_cells_summary.stats.txt"
-    
+
     barnyardParams=""
     if [ "${inBarnyardMap['isBarnyard']}" = 1 ]
     then
         barnyardParams="--window_matrices ${inWindowMatrix} --barnyard"
     fi
-    
+
+    if [ "${inMergedPeaksMap['peak_group']}" != "" ]
+    then
+      PEAK_GROUP=${inMergedPeaksMap['peak_group']}
+    else
+      PEAK_GROUP="-"
+    fi
+
+    if [ "${inMergedPeaksMap['peak_file']}" != "" ]
+    then
+      PEAK_FILE=`basename ${inMergedPeaksMap['peak_file']}`
+    else
+      PEAK_FILE="-"
+    fi
+
     Rscript ${script_dir}/summarize_cell_calls.R \
         --sample_name ${inCountReportsMap['sample']} \
         --read_count_tables ${inCountReports} \
         --stats_files ${inCalledCellStats} \
         --insert_size_tables ${inInsertSizes} \
+        --peak_groups \${PEAK_GROUP} \
+        --peak_files \${PEAK_FILE} \
         --peak_call_files ${inNarrowPeaks} \
         --merged_peaks ${inMergedPeaks} \
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
@@ -4421,7 +4437,7 @@ def summarizeCellCallsSetupNarrowPeak( inPaths, sampleSortedNames ) {
 }
 
 
-def summarizeCellCallsSetupMergedPeaks( inPaths, sampleSortedNames ) {
+def summarizeCellCallsSetupMergedPeaks( inPaths, sampleSortedNames, samplePeakGroupMap, samplePeakFileMap ) {
     /*
     ** Check for expected input pathss.
     */
@@ -4442,7 +4458,7 @@ def summarizeCellCallsSetupMergedPeaks( inPaths, sampleSortedNames ) {
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def inMergedPeaks = aSample + '-merged_peaks.bed'
-        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample ] )
+        def tuple = new Tuple( fileMap[inMergedPeaks], [ 'sample': aSample, 'peak_group': samplePeakGroupMap[aSample], 'peak_file': samplePeakFileMap[aSample] ] )
         outTuples.add( tuple )
     }
     
