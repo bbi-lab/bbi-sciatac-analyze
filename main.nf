@@ -2036,7 +2036,7 @@ process summarizeCellCallsProcess {
 
     outSummaryPlot="${inCountReportsMap['sample']}-called_cells_summary.pdf"
     outSummaryStats="${inCountReportsMap['sample']}-called_cells_summary.stats.txt"
-    
+
     barnyardParams=""
     if [ "${inBarnyardMap['isBarnyard']}" = 1 ]
     then
