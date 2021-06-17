@@ -25,18 +25,27 @@ import sys
 #        o  used in bbi-sciatac-analyze main.nf process combineReadCountsProcess
 
 def read_duplicate_report(combined_duplicate_report, file_name, offset):
+    print('file: %s' % (file_name))
     with open(file_name, 'r') as fp:
-        tokens = fp.readline().split('\t')
-        if(not all(list(tokens[0] == 'call', tokens[1] == 'total', tokens[2] == 'total_deduplicated'))):
+        tokens = fp.readline().rstrip().split('\t')
+        if(not all([tokens[0] == 'cell', tokens[1] == 'total', tokens[2] == 'total_deduplicated'])):
             print('Error: unexpected header in file \'%s\'' % (file_name), file=sys.stderr)
             sys.exit(-1)
         for line in fp:
             tokens = line.split('\t')
             key = tokens[0]
+            print('key: %s' % (key))
             combined_duplicate_report.setdefault(key, [0, 0, 0, 0])
-            combined_duplicate_report[key][0+offset] += int(tokens[1]
-            combined_duplicate_report[key][1+offset] += int(tokens[2]
+            combined_duplicate_report[key][0+offset] += int(tokens[1])
+            combined_duplicate_report[key][1+offset] += int(tokens[2])
+    return(combined_duplicate_report)
 
+def write_duplicate_report(combined_duplicate_report, file_name):
+	with open(file_name, 'w') as fp:
+		print('cell\ttotal\ttotal_duplicated\ttotal_mito\ttotal_mito_duplicated', file=fp)
+		for key in combined_duplicate_report:
+			areport = combined_duplicate_report[key]
+			print('%s\t%d\t%d\t%d\t%d' % (key, areport[0], areport[1], areport[2], areport[3]), file=fp)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to deduplicate position sorted sciATAC BAM file.')
@@ -48,5 +57,5 @@ if __name__ == '__main__':
     combined_duplicate_report = {}
     combined_duplicate_report = read_duplicate_report(combined_duplicate_report, args.input_duplicate_report, 0)
     combined_duplicate_report = read_duplicate_report(combined_duplicate_report, args.input_mito_duplicate_report, 2)
-    write_duplicate_report(args.output_combined_duplicate_report, combined_duplicate_report)
+    write_duplicate_report(combined_duplicate_report, args.output_combined_duplicate_report)
 

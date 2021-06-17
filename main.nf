@@ -979,17 +979,34 @@ getUniqueFragmentsMitoOutChannelDuplicateReport
 process combineReadCountsProcess {
     cache 'lenient'
     errorStrategy onError
-//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.transposition_sites.bed.gz*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-combined.duplicate_report.txt", mode: 'copy'
 
     input:
     set file( inDuplicateReport ), inDuplicateReportMap from combineReadCountsInChannelDuplicateReport
     set file( inMitoDuplicateReport ), inMitoDuplicateReportMap from combineReadCountsInChannelMitoDuplicateReport
 
     output:
-    file( xxxy ) into combineReadCountsOutChannelCombinedReadCounts
+    file( "*-combined.duplicate_report.txt" ) into combineReadCountsOutChannelCombinedReadCounts
 
     script:
     """
+    PROCESS_BLOCK='combineReadCountsProcess'
+    SAMPLE_NAME="${inDuplicateReportMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    outDuplicateReport="${inDuplicateReportMap['sample']}-combined.duplicate_report.txt"
+
+	python ${script_dir}/combine_read_counts.py --input_duplicate_report ${inDuplicateReport} --input_mito_duplicate_report ${inMitoDuplicateReport} --output_combined_duplicate_report \${outDuplicateReport}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
