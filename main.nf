@@ -767,65 +767,6 @@ process mergeMitoBamsProcess {
 
 /*
 ** ================================================================================
-** Evaluate mitochondrial reads.
-** ================================================================================
-*/
-
-/*
-runAlignOutBedChannel
-    .toList()
-    .flatMap{ countMitochondrialReadsChannelSetup( it, sampleLaneMap ) }
-    .set { countMitochondrialReadsInChannelBeds }
-
-process countMitochondrialReadsProcess {
-    cache 'lenient'
-    errorStrategy onError
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "count_report" ) }, pattern: "*-mitochondrial_counts.txt", mode: 'copy'
-
-    input:
-    set file( inBeds ), inCountMitochondrialReadsMap from countMitochondrialReadsInChannelBeds
-
-    output:
-    file("*-mitochondrial_counts.txt") into countMitochondrialReadsOutChannel
-
-    script:
-    """
-    outReadCounts="${inCountMitochondrialReadsMap['sample']}-mitochondrial_counts.txt"
-
-    #  Notes:
-    #   o  the read names look like <cell>:<counter>/<fragment end>
-    #   o  remove the fragment end substring, leaving fragment names,
-    #      usually in pairs on the same chromosome.
-    #   o  put fragment pairs in adjacent rows by sorting on chromosome
-    #      and fragment names. (The read pairs may not be initially in
-    #      adjacent rows.)
-    #   o  collapse fragment name pairs using uniq
-    #   o  remove the counter substring, leaving cell identifiers
-    #      Each row represents a fragment. There are often multiple
-    #      identical (adjacent) rows. --check--
-    #   o  count fragments by chromosome and cell 
-    #   o  reorder columns and sort by cell name and chromosome
-    #
-    zcat ${inBeds} \
-        | awk '{split(\$4,parts,"/"); printf("%s\\t%s\\n",\$1,parts[1]);}' \
-        | sort -k 1,1V -k2,2 -S 2G \
-        | uniq \
-        | awk '{split(\$2,parts,":"); printf("%s\\t%s\\n",\$1,parts[1]);}' \
-        | uniq -c \
-        | awk '{printf("%s\\t%s\\t%d\\n",\$3,\$2,\$1)}' \
-        | sort -k1,1 -k2,2V -S 2G > cell_read_counts.txt
-
-    #
-    # This script calculates % mitochondrial reads per cell.
-    #
-    $script_dir/mitochondrial_statistics.py cell_read_counts.txt > \${outReadCounts}
-    """
-}
-*/
-
-
-/*
-** ================================================================================
 ** Dedup fragments.
 ** ================================================================================
 */
@@ -931,9 +872,16 @@ getUniqueFragmentsOutChannelTranspositionSites
             getUniqueFragmentsOutChannelTranspositionSitesCopy07;
             getUniqueFragmentsOutChannelTranspositionSitesCopy08 }
 
+/*
+** This set operation has no value but I leave it for now.
+*/
 getUniqueFragmentOutChannelFragments
 	.set { getUniqueFragmentOutChannelFragmentsCopy01 }
-	
+
+getUniqueFragmentsOutChannelDuplicateReport
+	.into { getUniqueFragmentsOutChannelDuplicateReportCopy01;
+            getUniqueFragmentsOutChannelDuplicateReportCopy02 }
+
 /*
 ** Dedup mitochondrial fragments.
 */
@@ -1000,6 +948,49 @@ process getUniqueFragmentsMitoProcess {
     -e \${STOP_TIME} \
     -d ${log_dir}
 	"""
+}
+
+
+/*
+** Combine mitochondrial and non-mitochondrial read counts.
+*/
+/*
+** input channels:
+**   getUniqueFragmentsOutChannelDuplicateReportCopy02
+**   getUniqueFragmentsMitoOutChannelDuplicateReport
+**
+** similar channel processing
+** getUniqueFragmentsOutChannelDuplicateReportCopy01
+**     .toList()
+**     .flatMap { makeCountReportsChannelSetupDuplicateReport( it, sampleSortedNames ) }
+**     .set { makeCountReportsInChannelDuplicateReport }
+*/
+
+getUniqueFragmentsOutChannelDuplicateReportCopy02
+	.toList()
+	.flatMap { combineReadCountsChannelSetupDuplicateReport( it, sampleSortedNames ) }
+	.set { combineReadCountsInChannelDuplicateReport }
+
+getUniqueFragmentsMitoOutChannelDuplicateReport
+    .toList()
+    .flatMap { combineReadCountsChannelSetupMitoDuplicateReport( it, sampleSortedNames ) }
+    .set { combineReadCountsInChannelMitoDuplicateReport }
+
+process combineReadCountsProcess {
+    cache 'lenient'
+    errorStrategy onError
+//    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.transposition_sites.bed.gz*", mode: 'copy'
+
+    input:
+    set file( inDuplicateReport ), inDuplicateReportMap from combineReadCountsInChannelDuplicateReport
+    set file( inMitoDuplicateReport ), inMitoDuplicateReportMap from combineReadCountsInChannelMitoDuplicateReport
+
+    output:
+    file( xxxy ) into combineReadCountsOutChannelCombinedReadCounts
+
+    script:
+    """
+    """
 }
 
 
@@ -1521,7 +1512,7 @@ process makeTssRegionCountsProcess {
 ** ================================================================================
 */
 
-getUniqueFragmentsOutChannelDuplicateReport
+getUniqueFragmentsOutChannelDuplicateReportCopy01
     .toList()
     .flatMap { makeCountReportsChannelSetupDuplicateReport( it, sampleSortedNames ) }
     .set { makeCountReportsInChannelDuplicateReport }
@@ -3564,74 +3555,6 @@ def mergeMitoBamChannelSetup( inPaths, sampleLaneMap ) {
 
 /*
 ** ================================================================================
-** Mitochondrial read count set up.
-** ================================================================================
-*/
-
-/*
-** Set up channel to count mitochondrial reads.
-** Notes:
-**   o  input file name format: <sample_name>-<run+lane_id>.bed
-**   o  check for expected files
-**   o  return a list of tuples where each tuple consists of a
-**      sample name string and a list of input bam file
-**      java/NextFlow paths. There is one entry for each sample.
-*/
-/*
-!!! notice the spaces in the comment strings below!!!
-def countMitochondrialReadsChannelSetup( inPaths, sampleLaneMap ) {
-    / *
-    ** Check for expected bed files.
-    * /
-    def filesExpected = []
-    def samples = sampleLaneMap.keySet()
-    samples.each { aSample ->
-        def lanes = sampleLaneMap[aSample]
-        lanes.each { aLane ->
-            def fileName = aSample + '-' + aLane + '.all_chr.bed.gz'
-            filesExpected.add( fileName )
-        }
-    }
-    def filesFound = []
-    inPaths.each { aPath ->
-        filesFound.add( aPath.getFileName().toString() )
-    }
-    filesExpected.each { aFile ->
-        if( !( aFile in filesFound ) ) {
-            printErr( "Error: missing expected file \'${aFile}\' in channel" )
-            System.exit( -1 )
-        }
-    }
-
-    / *
-    ** Gather input bed files.
-    ** Store them in a map of lists keyed by sample name.
-    * /
-    def sampleLaneBedMap = [:]
-    samples.each { aSample ->
-        sampleLaneBedMap[aSample] = []
-    }
-    inPaths.each { aPath ->
-        def sampleName = aPath.getFileName().toString().split( '-' )[0]
-        sampleLaneBedMap[sampleName].add( aPath )
-    }
-   
-    / *
-    ** Set up output channel tuples.
-    * /
-    def outTuples = []
-    samples.each { aSample ->
-        def tuple = new Tuple( sampleLaneBedMap[aSample], [ 'sample': aSample ] )
-        outTuples.add( tuple )
-    }
-   
-    return( outTuples )
-}
-*/
-
-
-/*
-** ================================================================================
 ** Get unique fragments (dedup) channel setup functions.
 ** ================================================================================
 */
@@ -3806,6 +3729,70 @@ def getUniqueFragmentsMitoChannelSetupBam( inPaths, sampleSortedNames ) {
     }
         
 	return( outTuples )
+}
+
+
+/*
+** Set up channel for combining mitochondrial and non-mitochondrial read counts.
+*/
+def combineReadCountsChannelSetupDuplicateReport( it, sampleSortedNames ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-duplicate_report.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+       def inTxt = aSample + '-duplicate_report.txt'
+       def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
+       outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+/*
+** Set up channel for combining mitochondrial and non-mitochondrial read counts.
+*/
+def combineReadCountsChannelSetupMitoDuplicateReport( it, sampleSortedNames ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-mito.duplicate_report.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+       def inTxt = aSample + '-mito.duplicate_report.txt'
+       def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
+       outTuples.add( tuple )
+    }
+
+    return( outTuples )
 }
 
 
