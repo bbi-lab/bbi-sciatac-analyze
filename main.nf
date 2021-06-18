@@ -3752,7 +3752,7 @@ def getUniqueFragmentsMitoChannelSetupBam( inPaths, sampleSortedNames ) {
 /*
 ** Set up channel for combining mitochondrial and non-mitochondrial read counts.
 */
-def combineReadCountsChannelSetupDuplicateReport( it, sampleSortedNames ) {
+def combineReadCountsChannelSetupDuplicateReport( inPaths, sampleSortedNames ) {
     /*
     ** Check for expected txt files.
     */
@@ -3784,7 +3784,7 @@ def combineReadCountsChannelSetupDuplicateReport( it, sampleSortedNames ) {
 /*
 ** Set up channel for combining mitochondrial and non-mitochondrial read counts.
 */
-def combineReadCountsChannelSetupMitoDuplicateReport( it, sampleSortedNames ) {
+def combineReadCountsChannelSetupMitoDuplicateReport( inPaths, sampleSortedNames ) {
     /*
     ** Check for expected txt files.
     */

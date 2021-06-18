@@ -42,7 +42,7 @@ def read_duplicate_report(combined_duplicate_report, file_name, offset):
 
 def write_duplicate_report(combined_duplicate_report, file_name):
 	with open(file_name, 'w') as fp:
-		print('cell\ttotal\ttotal_duplicated\ttotal_mito\ttotal_mito_duplicated', file=fp)
+		print('cell\ttotal_nonmito\ttotal__nonmito_duplicated\ttotal_mito\ttotal_mito_duplicated', file=fp)
 		for key in combined_duplicate_report:
 			areport = combined_duplicate_report[key]
 			print('%s\t%d\t%d\t%d\t%d' % (key, areport[0], areport[1], areport[2], areport[3]), file=fp)
