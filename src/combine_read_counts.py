@@ -24,6 +24,7 @@ import sys
 #             o  total deduplicated count (?)
 #        o  used in bbi-sciatac-analyze main.nf process combineReadCountsProcess
 
+
 def read_duplicate_report(combined_duplicate_report, file_name, offset):
     print('file: %s' % (file_name))
     with open(file_name, 'r') as fp:
@@ -40,12 +41,14 @@ def read_duplicate_report(combined_duplicate_report, file_name, offset):
             combined_duplicate_report[key][1+offset] += int(tokens[2])
     return(combined_duplicate_report)
 
+
 def write_duplicate_report(combined_duplicate_report, file_name):
 	with open(file_name, 'w') as fp:
-		print('cell\ttotal_nonmito\ttotal__nonmito_duplicated\ttotal_mito\ttotal_mito_duplicated', file=fp)
+		print('cell\ttotal_nonmito\ttotal__nonmito_deduplicated\ttotal_mito\ttotal_mito_deduplicated', file=fp)
 		for key in combined_duplicate_report:
 			areport = combined_duplicate_report[key]
 			print('%s\t%d\t%d\t%d\t%d' % (key, areport[0], areport[1], areport[2], areport[3]), file=fp)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to deduplicate position sorted sciATAC BAM file.')
