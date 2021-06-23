@@ -292,7 +292,7 @@ params.bowtie_seed = null
 params.reads_threshold = null
 params.calculate_banding_scores = null
 params.make_genome_browser_files = null
-params.doublet_predict = true
+params.doublet_predict = false
 params.filter_blacklist_regions = true
 
 /*
@@ -411,6 +411,11 @@ def sampleGenomeMap = getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson )
 ** Additional checks.
 ** ================================================================================
 */
+
+/*
+** Check that required genome files exist.
+*/
+checkGenomeFiles( params, genomesRequired, genomesJson )
 
 /*
 ** Check that peak files exist.
@@ -997,6 +1002,7 @@ process combineReadCountsProcess {
     outDuplicateReport="${inDuplicateReportMap['sample']}-combined.duplicate_report.txt"
 
 	python ${script_dir}/combine_read_counts.py --input_duplicate_report ${inDuplicateReport} --input_mito_duplicate_report ${inMitoDuplicateReport} --output_combined_duplicate_report \${outDuplicateReport}
+echo foo
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
@@ -1009,6 +1015,10 @@ process combineReadCountsProcess {
     -d ${log_dir}
     """
 }
+
+combineReadCountsOutChannelCombinedReadCounts
+    .into { combineReadCountsOutChannelCombinedReadCountsCopy01;
+            combineReadCountsOutChannelCombinedReadCountsCopy02 }
 
 
 /*
@@ -2008,6 +2018,11 @@ makeWindowMatrixOutChannel
     .toList()
     .flatMap { summarizeCellCallsSetupWindowMatrix( it, sampleSortedNames ) }
     .set { summarizeCellCallsInChannelWindowMatrix }
+
+combineReadCountsOutChannelCombinedReadCountsCopy01
+    .toList()
+    .flatMap { summarizeCellCallsSetupCombinedReadCounts( it, sampleSortedNames ) }
+    .set { summarizeCellCallsInChannelCombinedReadCounts }
     
 Channel
     .fromList( summarizeCellCallsSetupTestBarnyard( sampleSortedNames, sampleGenomeMap ) )
@@ -2029,6 +2044,7 @@ process summarizeCellCallsProcess {
     set file( inMergedPeaks ), inMergedPeaksMap from summarizeCellCallsInChannelMergedPeaks
     set file( inPerBaseCoverageTss ), inPerBaseCoverageTss from summarizeCellCallsInChannelPerBaseCoverageTss
     set file( inWindowMatrix ), file( inWindowMatrixRowNames ), file( inWindowMatrixColNames), inWindowMatrixMap from summarizeCellCallsInChannelWindowMatrix
+    set file( inCombinedDuplicateReport ), inCombinedReadCountsMap from summarizeCellCallsInChannelCombinedReadCounts
     val inBarnyardMap from summarizeCellCallsInChannelTestBarnyard
     
     output:
@@ -2075,6 +2091,7 @@ process summarizeCellCallsProcess {
         --peak_call_files ${inNarrowPeaks} \
         --merged_peaks ${inMergedPeaks} \
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
+        --combined_duplicate_report ${inCombinedDuplicateReport} \
         --plot \${outSummaryPlot} \
         --output_stats \${outSummaryStats} \${barnyardParams}
 
@@ -2468,6 +2485,11 @@ makeCountReportsOutChannelCopy03
     .flatMap { makeReducedDimensionMatrixChannelSetupCountReport( it, sampleSortedNames ) }
     .set { makeReducedDimensionMatrixInChannelCountReport }
 
+combineReadCountsOutChannelCombinedReadCountsCopy02
+    .toList()
+    .flatMap { makeReducedDimensionMatrixChannelSetupCombinedReadCounts( it, sampleSortedNames ) }
+    .set { makeReducedDimensionMatrixInChannelCombinedReadCounts }
+
 process makeReducedDimensionMatrixProcess {
 	cache 'lenient'
     errorStrategy 'ignore'
@@ -2485,6 +2507,7 @@ process makeReducedDimensionMatrixProcess {
 	input:
 	tuple file( inPeakFiles ), inPeakMatrixMap from makeReducedDimensionMatrixInChannelPeakMatrix
     tuple file( inCountReport ), inCountReportMap from makeReducedDimensionMatrixInChannelCountReport
+    tuple file( inCombinedDuplicateReport ), inCombinedDuplicateReportMap from makeReducedDimensionMatrixInChannelCombinedReadCounts
 
 	output:
     file("*-lsi_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
@@ -2552,6 +2575,7 @@ process makeReducedDimensionMatrixProcess {
     --doublet_predict_top_ntile \${doublet_predict_top_ntile} \
     --num_lsi_dimensions \${num_lsi_dimensions} \
     --cluster_resolution \${cluster_resolution} \
+    --combined_read_count ${inCombinedDuplicateReport} \
     --cds_file \${outMonocle3CdsFile} \
     --lsi_coords_file \${outLsiCoordsFile} \
     --umap_coords_file \${outUmapCoordsFile} \
@@ -3272,6 +3296,26 @@ def getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson ) {
 	}
 	
 	return( sampleGenomeMap )
+}
+
+
+def checkGenomeFiles( params, genomesRequired, genomesJson ) {
+    def genomeFileList = [ 'chromosome_sizes', 'whitelist_regions', 'whitelist_with_mt_regions', 'tss', 'gene_score_bed', 'gene_bodies_gene_map', 'fasta' ]
+    genomesRequired.each { aGenome ->
+        if(!genomesJson.containsKey(aGenome)) {
+            printErr("Error: genomes JSON file has no entry for genome \'${aGenome}\'" )
+            System.exit( -1 )
+        }
+
+        genomesJson[aGenome].each { aKey, aValue ->
+            if(genomeFileList.contains(aKey)) {
+                if(!checkFile(aValue)) {
+                    printErr("Error: unable to read genome file \'${aValue}\'" )
+                    System.exit( -1 )
+                }
+            }
+        }
+    }
 }
 
 
@@ -5397,6 +5441,35 @@ def summarizeCellCallsSetupWindowMatrix( inPaths, sampleSortedNames ) {
 }
 
 
+def summarizeCellCallsSetupCombinedReadCounts( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected input pathss.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-combined.duplicate_report.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inCombinedDuplicateReport = aSample + '-combined.duplicate_report.txt'
+        def tuple = new Tuple( fileMap[inCombinedDuplicateReport], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
 def summarizeCellCallsSetupTestBarnyard( sampleSortedNames, sampleGenomeMap ) {
     def outMaps = []
     sampleSortedNames.each { aSample ->
@@ -5871,6 +5944,35 @@ def makeReducedDimensionMatrixChannelSetupCountReport( inPaths, sampleSortedName
     sampleSortedNames.each { aSample ->
         def inCountReport = aSample + '-count_report.txt'
         def tuple = new Tuple( fileMap[inCountReport], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+def makeReducedDimensionMatrixChannelSetupCombinedReadCounts( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected input paths.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-combined.duplicate_report.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inCombinedDuplicateReport = aSample + '-combined.duplicate_report.txt'
+        def tuple = new Tuple( fileMap[inCombinedDuplicateReport], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
 

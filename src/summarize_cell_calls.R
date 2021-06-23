@@ -77,6 +77,7 @@ parser$add_argument('--peak_files', nargs='+', required=TRUE, help='External pea
 parser$add_argument('--peak_call_files', nargs='+', required=TRUE, help='BED files with peak calls.')
 parser$add_argument('--merged_peaks', required=TRUE, help='BED file with merged peak set.')
 parser$add_argument('--per_base_tss_region_coverage_files', nargs='+', required=TRUE, help='Set of files with per base coverage for TSS regions.')
+parser$add_argument('--combined_duplicate_report', nargs='+', required=TRUE, help='Combined non-mitochondrial and mitochondrial duplicate report files.')
 parser$add_argument('--window_matrices', nargs='+', required=FALSE, help='Set of files with per base coverage for TSS regions.')
 parser$add_argument('--barnyard', action='store_true', help='Set if sample is a barnyard sample.')
 parser$add_argument('--plot', required=TRUE, help='Plot summarizing results.')
@@ -103,6 +104,12 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   # P2-E12_P2-E12_F09-rowF09-colF06 19840   12748   3942    1858
   message('-> loading counts...')
   sample_counts = readr::read_delim(args$read_count_tables[[i]], '\t')
+
+  # combined read count table file format (includes mitochondrial read columns)
+  # cell    total_nonmito   total_nonmito_deduplicated        total_mito      total_mito_deduplicated
+  # P2-E12_P2-E12_F09-rowF09-colF06 19840   12748   404     246
+  message('-> loading combined read counts...')
+  combined_read_counts = readr::read_delim(args$combined_duplicate_report[[i]], '\t')
 
   # insert sizes table file format
   # insert_size     count
@@ -386,7 +393,16 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   tick_value <- 10^tick_location
   axis(1, at=tick_location, labels=tick_value)
   dev.off()
-  
+ 
+  # Mitochondrial read fraction histogram.
+  subsetmitomat.sample = combined_read_counts[combined_read_counts$total_nonmito_deduplicated >= currcellfloor, ]
+  fraction_mitochondrial_reads <- subsetmitomat.sample$total_mito_deduplicated/(subsetmitomat.sample$total_nonmito_deduplicated+subsetmitomat.sample$total_mito_deduplicated)
+  hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
+  file_name <- paste0(sample_name, '-fraction_mitochondrial_reads.png')
+  png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
+  hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
+  dev.off()
+ 
   message('-> sample done.')
   if (args$barnyard) {
     stats_df <- data.frame('sample'=sample_name,

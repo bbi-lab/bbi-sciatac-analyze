@@ -93,6 +93,16 @@ function Sample(props) {
           "a",
           {
             className: "nav-item nav-link",
+            id: "nav" + safe_name + "-fracmitoreads-tab",
+            "data-toggle": "tab", href: "#nav" + safe_name + "-fracmitoreads",
+            role: "tab", "aria-controls": "nav" + safe_name + "-fracmitoreads",
+            "aria-selected": "false" },
+          "Cell QC"
+        ),
+        React.createElement(
+          "a",
+          {
+            className: "nav-item nav-link",
             id: "nav" + safe_name + "-scrub-tab",
             "data-toggle": "tab", href: "#nav" + safe_name + "-scrub",
             role: "tab", "aria-controls": "nav" + safe_name + "-scrub",
@@ -197,6 +207,7 @@ function Sample(props) {
       barnyardRegex.test(props.sample_id) && React.createElement(BarnyardPane, { sample_id: props.sample_id, className: "tab-pane fade show active" }),
       barnyardRegex.test(props.sample_id) ? React.createElement(ReadDistributionsPane, { sample_id: props.sample_id, className: "tab-pane fade" }) : React.createElement(ReadDistributionsPane, { sample_id: props.sample_id, className: "tab-pane fade show active" }),
       React.createElement(ScrubPane, { sample_id: props.sample_id, sample_stats: run_data.sample_stats }),
+      React.createElement(FractionMitochondrialReadsPane, { sample_id: props.sample_id }),
       React.createElement(FritPane, { sample_id: props.sample_id }),
       React.createElement(UmapPane, { sample_id: props.sample_id }),
       React.createElement(FragmentDistPane, { sample_id: props.sample_id }),
@@ -399,6 +410,16 @@ function ReadDistributionsPane(props) {
     plot_list: ["img/" + props.sample_id + "-knee_plot.png", "img/" + props.sample_id + "-umi_per_cell.png"]
   });
 }
+function FractionMitochondrialReadsPane(props) {
+  var safe_name = "hp" + props.sample_id.replace(/[.]/g, "-");
+  return React.createElement(Pane, {
+    className: "tab-pane fade",
+    id: "nav" + safe_name + "-fracmitoreads",
+    tag: "nav" + safe_name + "-fracmitoreads-tab",
+    text: [''],
+    plot: "img/" + props.sample_id + "-fraction_mitochondrial_reads.png"
+  });
+}
 function UmapPane(props) {
   var safe_name = "hp" + props.sample_id.replace(/[.]/g, "-");
   return React.createElement(Pane, {
@@ -449,7 +470,6 @@ function TssEnrichmentPane(props) {
     plot: "img/" + props.sample_id + "-tss_enrichment.png"
   });
 }
-
 function SamplePill(props) {
   var safe_name = "hp" + props.sample_id.replace(/[.]/g, "-");
   return React.createElement(
