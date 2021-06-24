@@ -2871,10 +2871,30 @@ def reportRunParams( params ) {
     }
 	if( params.reads_threshold != null ) {
 	   s += String.format( "Threshold for # reads/cell:           %s\n", params.reads_threshold )
-	}
-	if( params.calculate_banding_scores != null ) {
-	   s += String.format( "Calculate banding scores:             %s\n", params.calculate_banding_scores )
-	}
+	} else {
+       s += String.format( "Threshold for # reads/cell:           default\n" )
+    }
+    if( params.filter_blacklist_regions != null ) {
+       s += String.format( "Filter blacklist regions:             %s\n", params.filter_blacklist_regions )
+    } else {
+       s += String.format( "Filter blacklist regions:             default\n" )
+    }
+    if( params.doublet_predict != null ) {
+       s += String.format( "Run doublet detection:                %s\n", params.doublet_predict )
+    } else {
+       s += String.format( "Run doublet detection:                default\n" )
+    }
+    if( params.make_genome_browser_files != null ) {
+       s += String.format( "Make genome browser files:            %s\n", params.make_genome_browser_files )
+    } else {
+       s += String.format( "Make genome browser files:            default\n" )
+    }
+    if( params.calculate_banding_scores != null ) {
+       s += String.format( "Calculate banding scores:             %s\n", params.calculate_banding_scores )
+    } else {
+       s += String.format( "Calculate banding scores:             default\n" )
+    }
+
 	s += String.format( "\n" )
 	print( s )
 	
