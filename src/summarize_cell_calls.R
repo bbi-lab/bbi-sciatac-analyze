@@ -69,9 +69,11 @@ bloom_collision <- function(n1, n2, n12){
 
 parser = argparse::ArgumentParser(description='Script to make summary plots of cell calling results and other basic summary stats.')
 parser$add_argument('--stats_files', nargs='+', required=TRUE, help='List of all JSON files containing cell calling stats.')
-parser$add_argument('--sample_name', nargs='+', required=TRUE, help='Sample name.')
+parser$add_argument('--sample_names', nargs='+', required=TRUE, help='Sample names.')
 parser$add_argument('--read_count_tables', nargs='+', required=TRUE, help='Original read count tables (not thresholded).')
 parser$add_argument('--insert_size_tables', nargs='+', required=TRUE, help='Insert size distribution tables.')
+parser$add_argument('--peak_groups', nargs='+', required=TRUE, help='Peak groups assigned to sample.')
+parser$add_argument('--peak_files', nargs='+', required=TRUE, help='External peak files assigned to sample.')
 parser$add_argument('--peak_call_files', nargs='+', required=TRUE, help='BED files with peak calls.')
 parser$add_argument('--merged_peaks', required=TRUE, help='BED file with merged peak set.')
 parser$add_argument('--per_base_tss_region_coverage_files', nargs='+', required=TRUE, help='Set of files with per base coverage for TSS regions.')
@@ -91,7 +93,9 @@ par(mfrow=c(3,2))
 output_stats = lapply(1:length(args$stats_files), function(i) {
   sample_stats = rjson::fromJSON(file=args$stats_files[[i]])
 #   sample_name = stringr::str_replace(basename(args$stats_files[[i]]), '.stats.json', '')
-  sample_name = args$sample_name
+  sample_name = args$sample_names[[i]]
+  peak_group = args$peak_groups[[i]]
+  peak_file = args$peak_files[[i]]
   message(glue('Processing {sample_name}...'))
 
   # read count table file format
@@ -206,7 +210,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
                     paste0("\n Range of Reads/Cell: ", min_reads_per_cell," - ", max_reads_per_cell)),bty="n", cex=0.75, pt.cex = 1, text.font=2)
   grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
 
-  file_name <- paste0(args$sample_name, '-knee_plot.png')
+  file_name <- paste0(sample_name, '-knee_plot.png')
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   plot(x=cell_df$x, y=cell_df$y, col="mediumseagreen", main=paste0(sample_name, ' log10(Reads Per Cell)'),
        ylab="Number of Reads", xlab='Barcode Rank', pch=16, log='xy', cex=1, ylim = c(ymin, ymax), xlim=c(xmin, xmax))
@@ -241,7 +245,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
   abline(v=log10(median_total_fragments),lwd=2,lty="dashed")
 
-  file_name <- paste0(args$sample_name, '-estimated_frag_dist.png')
+  file_name <- paste0(sample_name, '-estimated_frag_dist.png')
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   hist(log10(totalfrags), main=paste0(sample_name, " Estimated Fragments"), col="orange",lwd=2,pch=20,las=1, breaks=60)
   legend("topright",
@@ -263,10 +267,12 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   legend("topright",
     c(paste0("\n Median FRiP: ", round(median_per_cell_frip, 4)),
     paste0("\n Sample Peaks: ", sample_peak_counts),
-    paste0("\n Total Merged Peaks: ", total_merged_peaks)),
+    paste0("\n Total Merged Peaks: ", total_merged_peaks),
+    paste0("\n Peak group: ", peak_group),
+    paste0("\n Peak file: ", peak_file)),
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
 
-  file_name <- paste0(args$sample_name, '-frip.png')
+  file_name <- paste0(sample_name, '-frip.png')
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   hist(frip,
         xlab="Fraction of Reads Mapping to DHS", main=paste0(sample_name, ' Cells FRiP'), col="dodgerblue2",lwd=2,pch=20,las=1, breaks=60)
@@ -274,7 +280,9 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   legend("topright",
     c(paste0("\n Median FRiP: ", round(median_per_cell_frip, 4)),
     paste0("\n Sample Peaks: ", sample_peak_counts),
-    paste0("\n Total Merged Peaks: ", total_merged_peaks)),
+    paste0("\n Total Merged Peaks: ", total_merged_peaks),
+    paste0("\n Peak group: ", peak_group),
+    paste0("\n Peak file: ", peak_file)),
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
   dev.off()
   
@@ -289,7 +297,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
     c(paste0("\n Median FRiT: ", round(median_per_cell_frit, 4))),
     bty="n", cex=0.75, pt.cex = 1, text.font=2)
 
-  file_name <- paste0(args$sample_name, '-frit.png')
+  file_name <- paste0(sample_name, '-frit.png')
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   hist(frit,
         xlab="Fraction of Reads Mapping to TSS Regions", main=paste0(sample_name, ' Cells FRiT'), col="red",lwd=2,pch=20,las=1, breaks=60)
@@ -304,7 +312,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   plot(x=sample_insert_sizes$insert_size, y=sample_insert_sizes$count, type='l', col='red', xlab='Insert Size (bp)', ylab='Count (reads)', main=paste0(sample_name, ' Insert Sizes'))
   grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
   
-  file_name <- paste0(args$sample_name, '-insert_size_dist.png')
+  file_name <- paste0(sample_name, '-insert_size_dist.png')
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   plot(x=sample_insert_sizes$insert_size, y=sample_insert_sizes$count, type='l', col='red', xlab='Insert Size (bp)', ylab='Count (reads)', main=paste0(sample_name, ' Insert Sizes'))
   grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
@@ -334,7 +342,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
                         paste0("Calculated Collision Rate: ",signif(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts),4)),
                         paste0("Bloom Collision Rate: ",bloom_collision_rate)))
 
-    file_name <- paste0(args$sample_name, '.png')
+    file_name <- paste0(sample_name, '.png')
     png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
     plot(barnyard_df$human,barnyard_df$mouse,pch=20,xlab="Human reads",ylab="Mouse reads", col=barnyard_df$color)
     abline(a=0, b=1-DOUBLET_PERCENTAGE_THRESHOLD,lwd=2,lty="dashed", col='lightgrey')
@@ -355,7 +363,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
         c(paste0("\n TSS enrichment: ", round(tss_enrichment, 4))),
     bty="n", cex=0.75, pt.cex = 1, text.font=2)
 
-    file_name <- paste0(args$sample_name, '-tss_enrichment.png')
+    file_name <- paste0(sample_name, '-tss_enrichment.png')
     png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
     plot(sample_tss_coverage$position, sample_tss_coverage$enrichment, type='l', col='black', xlab='Position relative to TSS (bp)', ylab='Fold Enrichment', main=paste0(sample_name, ' TSS enrichment'))
     grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
@@ -367,7 +375,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
 
   # UMI per cell histogram
   # plot: read distribution (umi per cell)
-  file_name <- paste0(args$sample_name, '-umi_per_cell.png')
+  file_name <- paste0(sample_name, '-umi_per_cell.png')
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   x <- sample_counts$total_deduplicated
   x <- x[x>10]
