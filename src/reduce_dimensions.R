@@ -1,5 +1,6 @@
 suppressMessages(library(monocle3))
 suppressMessages(library(ggplot2))
+suppressMessages(library(plyr))
 suppressMessages(library(dplyr))
 suppressMessages(library(stringr))
 suppressMessages(library(readr))
@@ -359,7 +360,8 @@ make_monocle3_cds <- function(matrix_data, num_lsi_dimensions=75, cluster_resolu
     combined_read_count <- read.delim(combined_read_count_file, header=TRUE, sep='\t')
     frac_mito_reads <- combined_read_count$total_mito_deduplicated/(combined_read_count$total_mito_deduplicated+combined_read_count$total_nonmito_deduplicated)
     frac_mito_reads_df <- data.frame(cell=combined_read_count$cell, frac_mito_reads=frac_mito_reads)
-    colData(cds)[['frac_mito_reads']] <- merge(colData(cds), frac_mito_reads_df, by='cell', all.x=TRUE)[['frac_mito_reads']]
+    rownames(frac_mito_reads_df) <- combined_read_count$cell
+    colData(cds)[['frac_mito_reads']] <- frac_mito_reads_df[rownames(colData(cds)),][['frac_mito_reads']]
 
     if(!is.null(cds_file))
     {
