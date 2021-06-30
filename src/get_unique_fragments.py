@@ -10,6 +10,7 @@ def write_bam_bed(fragments_dict, file_handle, chromosome, flanking_distance=100
     """
     Write out a set of intervals surrounding each transposition site accounted for by fragments in fragments dict to BED format.
     One line per transposition site.
+    Each fragment represents two transposition sites, one at each end.
 
     Args:
         fragments_dict (OrderedDict): dictionary of (cell, start, end) for fragments to the number of times that fragment was seen
@@ -103,6 +104,7 @@ if __name__ == '__main__':
     insert_sizes = [0] * (MAX_INSERT_SIZE + 1)
     chromosome_name = None
 
+    # Process and write a block of data for each chromosome.
     for read in readsin:
         reference_id = read.reference_id
 
@@ -128,6 +130,9 @@ if __name__ == '__main__':
         # for our BAM files
         cell = read.qname.split(':')[0]
 
+        # Note:
+        #   o  use mate position when tlen < 0 where the tlen sign implies
+        #      the relative read alignment positions on the chromosome.
         if read.tlen < 0:
             fragment_start = read.mpos
             fragment_end = read.mpos - read.tlen

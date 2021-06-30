@@ -337,11 +337,15 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
 #  o  the align_cds is used to remove residual effects of differences in fragment
 #     counts. Some people drop the first PC after PCA to do this but subtracting
 #     out the effects more precisely targets the problem.
+#  o  n.transposition_sites column values are obtained from the peak matrix after
+#     filtering in the preprocess_peak_matrix() function above.
+#  o  umi column values are from the count_report. These are the number of deduplicated
+#     reads from the duplicate_report file made by get_unique_fragments.py.
 make_monocle3_cds <- function(matrix_data, num_lsi_dimensions=75, cluster_resolution=1.0e-3, combined_read_count_file=NULL, cds_file=NULL)
 {
     message_log('ReduceDimensions: new_cell_data_set')
     cds <- monocle3::new_cell_data_set(matrix_data$pMat, cell_metadata=matrix_data$cDat_f)
-    colData(cds)$n.umi <- Matrix::colSums(exprs(cds))
+    colData(cds)$n.transposition_sites <- Matrix::colSums(exprs(cds))
     message_log('ReduceDimensions: detect_genes')
     cds <- monocle3::detect_genes(cds, min_expr=0)
     message_log('ReduceDimensions: preprocess_cds')

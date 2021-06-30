@@ -2535,7 +2535,7 @@ process makeReducedDimensionMatrixProcess {
 	outUmapPlotFile="${inPeakMatrixMap['sample']}-umap_plot"
 	outMonocle3CdsFile="${inPeakMatrixMap['sample']}-monocle3_cds.rds"
     outBlackListRegionsFile="${inPeakMatrixMap['sample']}-blacklist_regions_file.log"
-
+    outReduceDimensionsLogFile="${inPeakMatrixMap['sample']}-reduce_dimensions.log"
     umi_cutoff=$task.ext.umi_cutoff
     frip_cutoff=$task.ext.frip_cutoff
     frit_cutoff=$task.ext.frit_cutoff
@@ -2624,6 +2624,7 @@ process makeReducedDimensionMatrixProcess {
     -v 'python3 --version' 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
+    -f \${outReduceDimensionsLogFile} \${outBlackListRegionsFile} \
     -d ${log_dir}
 	"""
 }
