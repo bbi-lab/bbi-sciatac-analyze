@@ -112,7 +112,17 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   sample_insert_sizes = readr::read_delim(args$insert_size_tables[[i]], '\t')
 
   message('-> loading sample peaks...')
-  sample_peak_counts = nrow(read.delim(args$peak_call_files[[i]], header=FALSE))
+  sample_peak_counts <- tryCatch(
+                                  {
+                                    nrow(read.delim(args$peak_call_files[[i]], header=FALSE))
+                                  },
+                                  error = function(cond) {
+                                    return(0)
+                                  },
+                                  warning = function(cond) {
+                                    return(0)
+                                  }
+                                )
 
   # tss region coverage file format
   # position        total

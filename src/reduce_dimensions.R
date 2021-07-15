@@ -123,7 +123,7 @@ filter_regions <- function(features, blacklist_df) {
 }
 
 
-test_peak_matrix <- function( peak_matrix, min_feature, min_cell )
+test_peak_matrix <- function( peak_matrix, min_feature, min_cell, sample_name, umap_plot_file )
 {
     num_feature <- dim(peak_matrix)[1]
     num_cell <- dim(peak_matrix)[2]
@@ -138,6 +138,8 @@ test_peak_matrix <- function( peak_matrix, min_feature, min_cell )
     }
     if(length(bad_matrix_mesg>0))
     {
+        plot_message(paste0(umap_plot_file, '.pdf'), sample_name, bad_matrix_mesg)
+        plot_message(paste0(umap_plot_file, '.png'), sample_name, bad_matrix_mesg)
         quit_log('ReduceDimensions: error:\n', bad_matrix_mesg, '  Stopping.\n')
     }
 }
@@ -160,6 +162,16 @@ plot_umap_png <- function(cds, umap_plot_file, sample_name) {
     ggsave(umap_plot_file)
 }
 
+plot_message <- function(umap_plot_file, sample_name, message) {
+  ggplot2::ggplot() +
+  ggplot2::geom_text(ggplot2::aes(x=1, y=1, label=message)) +
+  monocle3:::monocle_theme_opts() +
+  ggplot2::theme(legend.position = "none") +
+  ggplot2::labs(x="UMAP 1", y="UMAP 2") +
+  ggplot2::ggtitle(sample_name)
+  ggplot2::ggsave(umap_plot_file)
+}
+
 
 ########################################
 # Preprocess peak matrix.
@@ -169,7 +181,7 @@ plot_umap_png <- function(cds, umap_plot_file, sample_name) {
 #   o  the default umi_cutoff, frip_cutoff, and frit_cutoff values are
 #      meant to be absolute minima.
 #
-preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutoff=100, frip_cutoff=0.1, frit_cutoff=0.05, black_list_file=NULL, doublet_predict=FALSE, doublet_predict_top_ntile=0.1, cds_file='monocle3_cds.rds' )
+preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutoff=100, frip_cutoff=0.1, frit_cutoff=0.05, black_list_file=NULL, doublet_predict=FALSE, doublet_predict_top_ntile=0.1, cds_file='monocle3_cds.rds', umap_plot_file='umap_null' )
 {
     min_feature <- 10
     min_cell <- 10
@@ -186,7 +198,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     num_cells_input <- dim(pMat)[2]
     message_log('ReduceDimensions: peak matrix dimensions: ', num_features_input, ' x ', num_cells_input)
 
-    test_peak_matrix(pMat, min_feature, min_cell)
+    test_peak_matrix(pMat, min_feature, min_cell, sample_name, umap_plot_file)
 
     ######################################################################################
     # filter cells
@@ -214,7 +226,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     num_cells_cell_filter <- dim(pMat)[2]
     message_log('ReduceDimensions: peak matrix dimensions post-cell filter: ', num_features_cell_filter, ' x ', num_cells_cell_filter)
 
-    test_peak_matrix(pMat, min_feature, min_cell)
+    test_peak_matrix(pMat, min_feature, min_cell, sample_name, umap_plot_file)
 
     ######################################################################################
     # filter features
@@ -226,7 +238,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     num_cells_feature_filter <- dim(pMat)[2]
     message_log('ReduceDimensions: peak matrix dimensions post-feature filter: ', num_features_feature_filter, ' x ', num_cells_feature_filter)
   
-    test_peak_matrix(pMat, min_feature, min_cell)
+    test_peak_matrix(pMat, min_feature, min_cell, sample_name, umap_plot_file)
 
     # the filter_features function from the atac_helper script removes features that overlap blackout regions of the genome.
     # load blacklist
@@ -258,7 +270,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     num_cells_cell_filter2 <- dim(pMat)[2]
     message_log('ReduceDimensions: peak matrix dimensions secondary post-cell filter: ', num_features_cell_filter2, ' x ', num_cells_cell_filter2)
   
-    test_peak_matrix(pMat, min_feature, min_cell)
+    test_peak_matrix(pMat, min_feature, min_cell, sample_name, umap_plot_file)
 
     ######################################################################################
     # filter out doublets
@@ -439,7 +451,8 @@ matrix_data <- preprocess_peak_matrix(mat_file=args$mat_file,
                                       black_list_file=args$black_list_file,
                                       doublet_predict=args$doublet_predict,
                                       doublet_predict_top_ntile=args$doublet_predict_top_ntile,
-                                      cds_file=args$cds_file )
+                                      cds_file=args$cds_file,
+                                      umap_plot_file=args$umap_plot_file )
 cds <- make_monocle3_cds(matrix_data, num_lsi_dimensions=args$num_lsi_dimensions, cluster_resolution=args$cluster_resolution, cds_file=args$cds_file)
 write_reduced_dimensions(cds, lsi_coords_file=args$lsi_coords_file, umap_coords_file=args$umap_coords_file)
 make_umap_plot(cds, umap_plot_file=args$umap_plot_file, args$sample_name)

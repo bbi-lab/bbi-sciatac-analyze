@@ -595,8 +595,14 @@ process mergeBamsProcess {
 	script:
 	"""
 	outBam="${inMergeBamMap['sample']}-merged.bam"
-	
-	sambamba merge --nthreads ${task.cpus} \${outBam} ${inBams}
+
+    if [ ${inMergeBamMap['numBamFiles']} -gt 1 ]
+    then
+        sambamba merge --nthreads ${task.cpus} \${outBam} ${inBams}
+    else
+        cp ${inBams} \${outBam}
+    fi
+
 	samtools index \${outBam}
 
     mkdir -p ${analyze_dir}/${inMergeBamMap['sample']}/genome_browser
@@ -1536,14 +1542,14 @@ process summarizeCellCallsProcess {
 
     if [ "${inMergedPeaksMap['peak_group']}" != "" ]
     then
-      PEAK_GROUP=${inMergedPeaksMap['peak_group']}
+      PEAK_GROUP="${inMergedPeaksMap['peak_group']}"
     else
       PEAK_GROUP="-"
     fi
 
     if [ "${inMergedPeaksMap['peak_file']}" != "" ]
     then
-      PEAK_FILE=`basename ${inMergedPeaksMap['peak_file']}`
+      PEAK_FILE="`basename ${inMergedPeaksMap['peak_file']}`"
     else
       PEAK_FILE="-"
     fi
@@ -2854,7 +2860,8 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 	*/
 	def outTuples = []
 	samples.each { aSample ->
-		def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample ] )
+        def numBamFiles = sampleLaneBamMap[aSample].size()
+		def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample, 'numBamFiles': numBamFiles ] )
 		outTuples.add( tuple )
 	}
 	
