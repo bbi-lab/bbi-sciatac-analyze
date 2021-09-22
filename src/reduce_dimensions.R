@@ -331,7 +331,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
         message_log('ReduceDimensions: peak matrix dimensions post-doublet filter: ', num_features_doublet_filter, ' x ', num_cells_doublet_filter)
     }
 
-    cDat_f <- cDat_f[match(colnames(pMat), cDat_f$cell, nomatch=0),]
+    cDat_f <- cDat_f[match(colnames(pMat), cDat_f$cell),]
     row.names(cDat_f) <- cDat_f$cell
 
     num_rows_coldata_3 <- nrow(cDat_f)
