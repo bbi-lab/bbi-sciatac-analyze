@@ -408,9 +408,17 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   subsetmitomat.sample = combined_read_counts[combined_read_counts$total_nonmito_deduplicated >= currcellfloor, ]
   fraction_mitochondrial_reads <- subsetmitomat.sample$total_mito_deduplicated/(subsetmitomat.sample$total_nonmito_deduplicated+subsetmitomat.sample$total_mito_deduplicated)
   hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
+  if(sum(subsetmitomat.sample$total_mito_deduplicated) == 0) {
+    plot_lims <- par('usr')
+    text((plot_lims[2]-plot_lims[1])*0.5+plot_lims[1], (plot_lims[4]-plot_lims[3])*0.5+plot_lims[3], 'No mitochondrial reads.')
+  }
   file_name <- paste0(sample_name, '-fraction_mitochondrial_reads.png')
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
+  if(sum(subsetmitomat.sample$total_mito_deduplicated) == 0) {
+    plot_lims <- par('usr')
+    text((plot_lims[2]-plot_lims[1])*0.5+plot_lims[1], (plot_lims[4]-plot_lims[3])*0.5+plot_lims[3], 'No mitochondrial reads.')
+  }
   dev.off()
  
   message('-> sample done.')

@@ -643,20 +643,35 @@ process runAlignProcess {
 	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
     outMito="${alignMap['sample']}-${alignMap['lane']}.mito"
 
-    bowtie2 -3 1 \
-        -X 2000 \
-        -p ${task.cpus} \
-        -x ${alignMap['genome_index']} \
-        -1 ${alignMap['fastq1']} \
-        -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
-        | samtools view -h -L ${alignMap['whitelist_with_mt']} -f3 -F12 -q10 - 2> \${samtoolsViewStderr} \
-        | ${script_dir}/divert_mito_alignments.py -o \${outMito}.sam \
-        | samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}
+    if [ "${alignMap['has_whitelist_with_mt']}" == "true" ]
+    then
+      bowtie2 -3 1 \
+          -X 2000 \
+          -p ${task.cpus} \
+          -x ${alignMap['genome_index']} \
+          -1 ${alignMap['fastq1']} \
+          -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
+          | samtools view -h -L ${alignMap['whitelist_with_mt']} -f3 -F12 -q10 - 2> \${samtoolsViewStderr} \
+          | ${script_dir}/divert_mito_alignments.py -o \${outMito}.sam \
+          | samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}
+  
+      samtools sort -T \${outMito}.sorttemp --threads 4 \${outMito}.sam -o \${outMito}.bam
+      rm \${outMito}.sam
+    else
+      bowtie2 -3 1 \
+          -X 2000 \
+          -p ${task.cpus} \
+          -x ${alignMap['genome_index']} \
+          -1 ${alignMap['fastq1']} \
+          -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
+          | samtools view -h -L ${alignMap['whitelist']} -f3 -F12 -q10 - 2> \${samtoolsViewStderr} \
+          | samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}
 
-    samtools sort -T \${outMito}.sorttemp --threads 4 \${outMito}.sam -o \${outMito}.bam
-    rm \${outMito}.sam
+      samtools view -H -o \${outMito}.bam \${outBam}
+    fi
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    MITO_READS="{\\\"mitochondrial_reads\\\": ${alignMap['has_whitelist_with_mt']}}"
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -665,6 +680,7 @@ process runAlignProcess {
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -f \${bowtieStderr} \
+    -j "\${MITO_READS}" \
     -d ${log_dir}
 	"""
 }
@@ -1152,7 +1168,7 @@ process mergePeaksByGroupProcess {
 	script:
 	"""
     PROCESS_BLOCK='mergePeaksByGroupProcess'
-    SAMPLE_NAME="${mergePeaksMap['group']}"
+    SAMPLE_NAME="peaks.${mergePeaksMap['group']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
 	outGroupBed="${mergePeaksMap['group']}-group_merged_peaks_set.bed"
@@ -2721,7 +2737,7 @@ process makeMergedPlotFilesProcess {
     script:
     """
     PROCESS_BLOCK='makeMergedPlotFilesProcess'
-    SAMPLE_NAME="NA"
+    SAMPLE_NAME="na"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
     mkdir -p ${output_dir}/analyze_out/merged_plots
@@ -3327,11 +3343,26 @@ def getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson ) {
 
 
 def checkGenomeFiles( params, genomesRequired, genomesJson ) {
-    def genomeFileList = [ 'chromosome_sizes', 'whitelist_regions', 'whitelist_with_mt_regions', 'tss', 'gene_score_bed', 'gene_bodies_gene_map', 'fasta' ]
+
+    def genomeFileList = [ 'chromosome_sizes', 'whitelist_regions', 'whitelist_with_mt_regions', 'blacklist_regions', 'tss', 'gene_score_bed', 'gene_bodies_gene_map', 'fasta', 'motifs']
+    def requiredFileList = ['chromosome_sizes', 'whitelist_regions', 'tss', 'gene_bodies_gene_map']
+
     genomesRequired.each { aGenome ->
         if(!genomesJson.containsKey(aGenome)) {
             printErr("Error: genomes JSON file has no entry for genome \'${aGenome}\'" )
             System.exit( -1 )
+        }
+
+        errorFlag = false
+        requiredFileList.each { fileType ->
+          if(!genomesJson[aGenome][fileType]) {
+            printErr("Error: genomes JSON file is missing the \'${fileType}\' entry for genome \'${aGenome}\'" )
+            errorFlag = true
+          }
+        }
+
+        if(errorFlag) {
+          System.exit( -1 )
         }
 
         genomesJson[aGenome].each { aKey, aValue ->
@@ -3497,8 +3528,15 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 			def genome         = argsJson[theRun]['genomes'][aSample]
 			def genome_index   = genomesJson[genome]['bowtie_index']
 			def whitelist      = genomesJson[genome]['whitelist_regions']
-            def whitelist_with_mt = genomesJson[genome]['whitelist_with_mt_regions']
 			def aligner_memory = genomesJson[genome]['aligner_memory']
+
+            def whitelist_with_mt = null
+            def has_whitelist_with_mt = 'false'
+            if(genomesJson[genome].containsKey('whitelist_with_mt_regions')) {
+              whitelist_with_mt = genomesJson[genome]['whitelist_with_mt_regions']
+              has_whitelist_with_mt = 'true'
+            }
+
 			alignMaps.add( [ 'sample': aSample,
                              'lane': aLane,
                              'fastq1': fastq1,
@@ -3506,6 +3544,7 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
                              'genome_index': genome_index,
                              'whitelist': whitelist,
                              'whitelist_with_mt': whitelist_with_mt,
+                             'has_whitelist_with_mt' : has_whitelist_with_mt,
                              'aligner_memory': aligner_memory,
                              'seed': seed ] )
 		}

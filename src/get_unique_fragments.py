@@ -1,6 +1,8 @@
 from __future__ import print_function
 import pysam
 import sys
+import warnings
+import inspect
 import argparse
 from collections import OrderedDict
 
@@ -187,7 +189,13 @@ if __name__ == '__main__':
 
     # Check to make sure something was read
     if not cell_duplicate_counts:
-        raise ValueError('When tracking duplicate fragments, no reads were found in input BAM. Check input BAM: %s' % args.input_bam)
+        if args.duplicate_read_counts:
+            with open(args.duplicate_read_counts, 'w') as output_file:
+                output_file.write('\t'.join(['cell', 'total', 'total_deduplicated']) + '\n')
+        if args.insert_sizes:
+            with open(args.insert_sizes, 'w') as output_file:
+                output_file.write('\t'.join(['insert_size', 'count']) + '\n')
+        warnings.warn_explicit('When tracking duplicate fragments, no reads were found in input BAM. Check input BAM: %s' % args.input_bam, RuntimeWarning, __file__, inspect.currentframe().f_lineno)
 
     # Finally, write out duplicate counts and insert sizes
     if args.duplicate_read_counts:

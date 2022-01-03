@@ -6,6 +6,16 @@
 # Purpose: write processing pipeline log file entries.
 #
 
+# Notes:
+#   o  getting JSON strings from the Nextflow process block to
+#      this pipeline_logger.py program is a challenge. I managed
+#      to get it to work using
+#
+#        MITO_READS="{\\\"mitochondrial_reads\\\": ${alignMap['has_whitelist_with_mt']}}"
+#        pipeline_logger.py ... -j "\${MITO_READS}" ...
+#     
+#      Maybe there is an easier way?
+#
 
 import os
 import subprocess
@@ -38,6 +48,7 @@ if __name__ == '__main__':
   parser.add_argument('-c', '--process_command_list', nargs='+', required=False, help='List of process commands separated by whitespace.')
   parser.add_argument('-v', '--version_command_list', nargs='+', required=True, help='List of version information commands separated by whitespace.')
   parser.add_argument('-f', '--file_name_list', nargs='+', required=False, help='Names of file with additional logging information.')
+  parser.add_argument('-j', '--json_strings', nargs='+', required=False, help='JSON string.')
   parser.add_argument('-s', '--start_time', required=True, help='Process start time.')
   parser.add_argument('-e', '--end_time', required=True, help='Process end time.')
   parser.add_argument('-d', '--output_directory', required=False, help='Output directory.')
@@ -77,10 +88,15 @@ if __name__ == '__main__':
 
   # Additional logged text.
   if(args.file_name_list != None):
-    out_dict['additional_information'] = []
+    out_dict['file_contents'] = []
     for file_name in args.file_name_list:
       ifp = open(file_name, 'r')
-      out_dict['additional_information'].append( {'file_name': file_name, 'file_content': ifp.read().rstrip()})
+      out_dict['file_contents'].append( {'file_name': file_name, 'file_content': ifp.read().rstrip()} )
+
+  if(args.json_strings != None):
+    out_dict['json_strings'] = []
+    for json_string in args.json_strings:
+      out_dict['json_strings'].append(json.loads(json_string))
 
   # Write to JSON file.
   if(args.output_file == None):
