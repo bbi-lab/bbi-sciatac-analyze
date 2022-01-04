@@ -406,65 +406,75 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
  
   # Mitochondrial read fraction histogram.
   subsetmitomat.sample = combined_read_counts[combined_read_counts$total_nonmito_deduplicated >= currcellfloor, ]
+  total_fraction_mitochondrial_reads <- sum(subsetmitomat.sample$total_mito_deduplicated)/(sum(subsetmitomat.sample$total_nonmito_deduplicated)+sum(subsetmitomat.sample$total_mito_deduplicated))
   fraction_mitochondrial_reads <- subsetmitomat.sample$total_mito_deduplicated/(subsetmitomat.sample$total_nonmito_deduplicated+subsetmitomat.sample$total_mito_deduplicated)
   hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
-  if(sum(subsetmitomat.sample$total_mito_deduplicated) == 0) {
+  if(sum(subsetmitomat.sample$total_mito_deduplicated) > 0) {
+    legend("topright",paste0("Fraction Total Mitochondrial Reads: ",signif(total_fraction_mitochondrial_reads,4)), bty="n", cex=0.75, pt.cex = 1, text.font=2)
+  }
+  else {
     plot_lims <- par('usr')
     text((plot_lims[2]-plot_lims[1])*0.5+plot_lims[1], (plot_lims[4]-plot_lims[3])*0.5+plot_lims[3], 'No mitochondrial reads.')
   }
   file_name <- paste0(sample_name, '-fraction_mitochondrial_reads.png')
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
-  if(sum(subsetmitomat.sample$total_mito_deduplicated) == 0) {
+  if(sum(subsetmitomat.sample$total_mito_deduplicated) > 0) {
+    legend("topright",paste0("Fraction Total Mitochondrial Reads: ",signif(total_fraction_mitochondrial_reads,4)), bty="n", cex=0.75, pt.cex = 1, text.font=2)
+  }
+  else {
     plot_lims <- par('usr')
     text((plot_lims[2]-plot_lims[1])*0.5+plot_lims[1], (plot_lims[4]-plot_lims[3])*0.5+plot_lims[3], 'No mitochondrial reads.')
   }
   dev.off()
  
   message('-> sample done.')
+  nsignif <- 4
   if (args$barnyard) {
     stats_df <- data.frame('sample'=sample_name,
                            'cell_threshold'=currcellfloor,
-                           'fraction_hs'=fraction_hs,
-                           'fraction_tss'=fraction_tss,
-                           'median_per_cell_frip'=median_per_cell_frip,
-                           'median_per_cell_frit'=median_per_cell_frit,
-                           'tss_enrichment'=tss_enrichment,
+                           'fraction_hs'=signif(fraction_hs, nsignif),
+                           'fraction_tss'=signif(fraction_tss, nsignif),
+                           'median_per_cell_frip'=signif(median_per_cell_frip, nsignif),
+                           'median_per_cell_frit'=signif(median_per_cell_frit, nsignif),
+                           'tss_enrichment'=signif(tss_enrichment, nsignif),
                            'sample_peaks_called'=sample_peak_counts,
                            'total_merged_peaks'=total_merged_peaks,
                            'total_reads'=total_reads,
-                           'fraction_reads_in_cells'=fraction_reads_in_cells,
+                           'fraction_reads_in_cells'=signif(fraction_reads_in_cells, nsignif),
                            'total_barcodes'=total_barcodes,
                            'number_of_cells'=number_of_cells,
-                           'median_reads_per_cell'=median_reads_per_cell,
+                           'median_reads_per_cell'=signif(median_reads_per_cell, nsignif),
                            'min_reads_per_cell'=min_reads_per_cell,
                            'max_reads_per_cell'=max_reads_per_cell,
-                           'median_duplication_rate'=median_duplication_rate,
-                           'median_fraction_molecules_observed'=median_fraction_molecules_observed,
-                           'median_total_fragments'=median_total_fragments,
+                           'median_duplication_rate'=signif(median_duplication_rate, nsignif),
+                           'median_fraction_molecules_observed'=signif(median_fraction_molecules_observed, nsignif),
+                           'median_total_fragments'=signif(median_total_fragments, nsignif),
                            'total_deduplicated_reads'=total_deduplicated_reads,
-                           'bloom_collision_rate'=bloom_collision_rate)
+                           'fraction_mitochondrial_reads'=signif(total_fraction_mitochondrial_reads, nsignif),
+                           'bloom_collision_rate'=signif(bloom_collision_rate, nsignif))
   } else {
     stats_df <- data.frame('sample'=sample_name,
                            'cell_threshold'=currcellfloor,
-                           'fraction_hs'=fraction_hs,
-                           'fraction_tss'=fraction_tss,
-                           'median_per_cell_frip'=median_per_cell_frip,
-                           'median_per_cell_frit'=median_per_cell_frit,
-                           'tss_enrichment'=tss_enrichment,
+                           'fraction_hs'=signif(fraction_hs, nsignif),
+                           'fraction_tss'=signif(fraction_tss, nsignif),
+                           'median_per_cell_frip'=signif(median_per_cell_frip, nsignif),
+                           'median_per_cell_frit'=signif(median_per_cell_frit, nsignif),
+                           'tss_enrichment'=signif(tss_enrichment, nsignif),
                            'sample_peaks_called'=sample_peak_counts,
                            'total_merged_peaks'=total_merged_peaks,
                            'total_reads'=total_reads,
-                           'fraction_reads_in_cells'=fraction_reads_in_cells,
+                           'fraction_reads_in_cells'=signif(fraction_reads_in_cells, nsignif),
                            'total_barcodes'=total_barcodes,
                            'number_of_cells'=number_of_cells,
-                           'median_reads_per_cell'=median_reads_per_cell,
+                           'median_reads_per_cell'=signif(median_reads_per_cell, nsignif),
                            'min_reads_per_cell'=min_reads_per_cell,
                            'max_reads_per_cell'=max_reads_per_cell,
-                           'median_duplication_rate'=median_duplication_rate,
-                           'median_fraction_molecules_observed'=median_fraction_molecules_observed,
-                           'median_total_fragments'=median_total_fragments,
-                           'total_deduplicated_reads'=total_deduplicated_reads)
+                           'median_duplication_rate'=signif(median_duplication_rate, nsignif),
+                           'median_fraction_molecules_observed'=signif(median_fraction_molecules_observed, nsignif),
+                           'median_total_fragments'=signif(median_total_fragments, nsignif),
+                           'total_deduplicated_reads'=total_deduplicated_reads,
+                           'fraction_mitochondrial_reads'=signif(total_fraction_mitochondrial_reads, nsignif))
   }
   # Return any key stats for output file
   return(stats_df)
