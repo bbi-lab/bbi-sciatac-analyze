@@ -405,11 +405,15 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   dev.off()
  
   # Mitochondrial read fraction histogram.
-  subsetmitomat.sample = combined_read_counts[combined_read_counts$total_nonmito_deduplicated >= currcellfloor, ]
-  total_fraction_mitochondrial_reads <- sum(subsetmitomat.sample$total_mito_deduplicated)/(sum(subsetmitomat.sample$total_nonmito_deduplicated)+sum(subsetmitomat.sample$total_mito_deduplicated))
-  fraction_mitochondrial_reads <- subsetmitomat.sample$total_mito_deduplicated/(subsetmitomat.sample$total_nonmito_deduplicated+subsetmitomat.sample$total_mito_deduplicated)
+  subsetmitomat.sample = combined_read_counts[combined_read_counts[['total_nonmito_deduplicated']] >= currcellfloor, ]
+  total_fraction_mitochondrial_reads <- sum(subsetmitomat.sample[['total_mito_deduplicated']]) /
+                                            (sum(subsetmitomat.sample[['total_nonmito_deduplicated']]) +
+                                            sum(subsetmitomat.sample[['total_mito_deduplicated']]))
+  fraction_mitochondrial_reads <- subsetmitomat.sample[['total_mito_deduplicated']] /
+                                  (subsetmitomat.sample[['total_nonmito_deduplicated']] +
+                                  subsetmitomat.sample[['total_mito_deduplicated']])
   hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
-  if(sum(subsetmitomat.sample$total_mito_deduplicated) > 0) {
+  if(sum(subsetmitomat.sample[['total_mito_deduplicated']]) > 0) {
     legend("topright",paste0("Fraction Total Mitochondrial Reads: ",signif(total_fraction_mitochondrial_reads,4)), bty="n", cex=0.75, pt.cex = 1, text.font=2)
   }
   else {
