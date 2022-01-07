@@ -713,7 +713,7 @@ process mergeBamsProcess {
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
 	outBam="${inMergeBamMap['sample']}-merged.bam"
-	
+
     if [ ${inMergeBamMap['numBamFiles']} -gt 1 ]
     then
         sambamba merge --nthreads ${task.cpus} \${outBam} ${inBams}
