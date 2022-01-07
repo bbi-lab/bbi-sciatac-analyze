@@ -2859,7 +2859,6 @@ def writeHelp() {
     log.info '    params.genomes_json = GENOMES_JSON               A json file of genome information for analyses.'
     log.info ''
     log.info 'Optional parameters (specify in your config file):'
-    log.info '    params.bowtie_memory = MEMORY (int)              Amount of memory in bowtie run.'
     log.info '    params.bowtie_seed = SEED (int)                  Bowtie random number generator seed.'
     log.info '    params.doublet_predict VALUE (logical)           Run double prediction.'
     log.info '    params.filter_blacklist_regions VALUE (logical)  Filter blacklisted genomic regions when preprocessing the cell_data_set.'
