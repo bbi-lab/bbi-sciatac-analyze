@@ -74,7 +74,7 @@ def merge_summary_pdfs( output_filename, analyze_out, samples ):
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='A program to summary PDF files.')
+    parser = argparse.ArgumentParser(description='A program to merge summary PDF files.')
     parser.add_argument('-i', '--input_file', required=True, help='Path to args.json input file in sci-ATAC analyze output directory.')
     parser.add_argument('-o', '--output_file', required=True, help='Name of output file.')
     args = parser.parse_args()

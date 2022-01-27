@@ -1,5 +1,6 @@
 suppressMessages(library(monocle3))
 suppressMessages(library(ggplot2))
+suppressMessages(library(plyr))
 suppressMessages(library(dplyr))
 suppressMessages(library(stringr))
 suppressMessages(library(readr))
@@ -348,18 +349,22 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
 #  o  the align_cds is used to remove residual effects of differences in fragment
 #     counts. Some people drop the first PC after PCA to do this but subtracting
 #     out the effects more precisely targets the problem.
-make_monocle3_cds <- function(matrix_data, num_lsi_dimensions=75, cluster_resolution=1.0e-3, cds_file=NULL)
+#  o  n.transposition_sites column values are obtained from the peak matrix after
+#     filtering in the preprocess_peak_matrix() function above.
+#  o  umi column values are from the count_report. These are the number of deduplicated
+#     reads from the duplicate_report file made by get_unique_fragments.py.
+make_monocle3_cds <- function(matrix_data, num_lsi_dimensions=75, cluster_resolution=1.0e-3, combined_read_count_file=NULL, cds_file=NULL)
 {
     message_log('ReduceDimensions: new_cell_data_set')
     cds <- monocle3::new_cell_data_set(matrix_data$pMat, cell_metadata=matrix_data$cDat_f)
-    colData(cds)$n.umi <- Matrix::colSums(exprs(cds))
+    colData(cds)$n.transposition_sites <- Matrix::colSums(exprs(cds))
     message_log('ReduceDimensions: detect_genes')
     cds <- monocle3::detect_genes(cds, min_expr=0)
     message_log('ReduceDimensions: preprocess_cds')
     message_log('ReduceDimensions: number of LSI dimensions to keep: ', num_lsi_dimensions)
     cds <- monocle3::preprocess_cds(cds, method='LSI', num_dim=num_lsi_dimensions)
     message_log('ReduceDimensions: align_cds')
-    cds <- monocle3::align_cds(cds, preprocess_method='LSI', residual_model_formula_str='~n.umi')
+    cds <- monocle3::align_cds(cds, preprocess_method='LSI', residual_model_formula_str='~n.transposition_sites')
     message_log('ReduceDimensions: estimate_size_factors')
     cds <- monocle3::estimate_size_factors(cds)
     message_log('ReduceDimensions: reduce_dimension')
@@ -367,6 +372,13 @@ make_monocle3_cds <- function(matrix_data, num_lsi_dimensions=75, cluster_resolu
     message_log('ReduceDimensions: cluster_cells')
     message_log('ReduceDimensions: cluster resolution: ', sprintf( '%.4e', cluster_resolution))
     cds <- monocle3::cluster_cells(cds, reduction_method='UMAP', resolution=cluster_resolution)
+    message_log('ReduceDimensions: add fraction of mitochondrial reads by cell to colData(cds)')
+    combined_read_count <- read.delim(combined_read_count_file, header=TRUE, sep='\t')
+    frac_mito_reads <- combined_read_count$total_mito_deduplicated/(combined_read_count$total_mito_deduplicated+combined_read_count$total_nonmito_deduplicated)
+    frac_mito_reads_df <- data.frame(cell=combined_read_count$cell, frac_mito_reads=frac_mito_reads)
+    rownames(frac_mito_reads_df) <- combined_read_count$cell
+    colData(cds)[['frac_mito_reads']] <- frac_mito_reads_df[rownames(colData(cds)),][['frac_mito_reads']]
+
     if(!is.null(cds_file))
     {
         message_log('ReduceDimensions: write CDS file: ', cds_file)
@@ -432,6 +444,7 @@ parser$add_argument('--doublet_predict', default=FALSE, action='store_true', hel
 parser$add_argument('--doublet_predict_top_ntile', default=0.1, type='double', help='Identify doublets as top ntile of doublet_scores.')
 parser$add_argument('--num_lsi_dimensions', default=75, type='integer', help='Number of LSI components to keep.')
 parser$add_argument('--cluster_resolution', default=1.0e-3, type='double', help='Monocle3 cluster resolution.')
+parser$add_argument('--combined_read_count_file', default=NULL, help='Combined read count file name.')
 parser$add_argument('--cds_file', default=NULL, help='CDS file name.')
 parser$add_argument('--lsi_coords_file', default=NULL, help='LSI coordinates file name.')
 parser$add_argument('--umap_coords_file', default=NULL, help='UMAP coordinates file name.')
@@ -453,7 +466,7 @@ matrix_data <- preprocess_peak_matrix(mat_file=args$mat_file,
                                       doublet_predict_top_ntile=args$doublet_predict_top_ntile,
                                       cds_file=args$cds_file,
                                       umap_plot_file=args$umap_plot_file )
-cds <- make_monocle3_cds(matrix_data, num_lsi_dimensions=args$num_lsi_dimensions, cluster_resolution=args$cluster_resolution, cds_file=args$cds_file)
+cds <- make_monocle3_cds(matrix_data, num_lsi_dimensions=args$num_lsi_dimensions, cluster_resolution=args$cluster_resolution, combined_read_count_file=args$combined_read_count_file, cds_file=args$cds_file)
 write_reduced_dimensions(cds, lsi_coords_file=args$lsi_coords_file, umap_coords_file=args$umap_coords_file)
 make_umap_plot(cds, umap_plot_file=args$umap_plot_file, args$sample_name)
 

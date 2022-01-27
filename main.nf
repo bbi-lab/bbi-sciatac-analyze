@@ -118,6 +118,11 @@
 **               }
 **
 ** Notes on this script
+**  o  the memory directive for the aligner is set in the genomes.json file
+**     because the aligner memory depends on the genome size. The aligner
+**     memory request is divided by the number of requested cpus in main.nf.
+**     The memory requests for all other processes is not divided by the
+**     number of requested cpus.
 **  o  I have tried to keep the comments accurate but I am certain that there
 **     are instances in which I cut and pasted and forgot to edit the strings,
 **     or I edited the code and some comments/strings no longer describe
@@ -196,9 +201,9 @@
 **      remove dependencies on specific genome versions
 **   o  add/update genomes
 **   o  add dashboards/statistics
-**   o  add plots for Cailyn
+**   o  add plots for Cailyn (done)
 **   o  compact functions where possible
-**   o  write program for aggregating runs
+**   o  write program for aggregating runs (done: use script to concatenate fastq files)
 **   o  consider using string variables for filenames (define the variables in the process class: try to define processes that create (output) the files)
 **   o  update file_map.docx
 **   o  write JSON args.json file (perhaps write a sample-specific JSON file to each sample directory) (done)
@@ -286,7 +291,8 @@ params.samples = null
 params.bowtie_seed = null
 params.reads_threshold = null
 params.calculate_banding_scores = null
-params.doublet_predict = true
+params.make_genome_browser_files = null
+params.doublet_predict = false
 params.filter_blacklist_regions = true
 
 /*
@@ -315,11 +321,13 @@ if( !params.genomes_json ) {
 output_dir = params.output_dir.replaceAll("/\\z", "")
 demux_dir = output_dir + '/demux_out'
 analyze_dir = output_dir + '/analyze_out'
+log_dir = output_dir + '/analyze_log_dir'
+tmp_dir = output_dir + '/tmp'
 
 /*
 ** Check that required directories exist or can be made.
 */
-checkDirectories( params )
+checkDirectories( params, log_dir, tmp_dir )
 
 /*
 ** Report run parameter values.
@@ -331,6 +339,15 @@ reportRunParams( params )
 */
 archiveRunFiles( params, timeNow )
 
+/*
+** Save workflow.runName to a file that can be
+** by logger in each process.
+** Note: using ${workflow.runName} in a process
+** causes the -resume to fail because the runName
+** changes from run-to-run.
+*/
+File tfile = new File("${tmp_dir}/nextflow_run_name.txt")
+tfile.write("${workflow.runName}")
 
 /*
 ** ================================================================================
@@ -396,6 +413,11 @@ def sampleGenomeMap = getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson )
 */
 
 /*
+** Check that required genome files exist.
+*/
+checkGenomeFiles( params, genomesRequired, genomesJson )
+
+/*
 ** Check that peak files exist.
 */
 checkPeakFiles( samplePeakFileMap )
@@ -443,9 +465,23 @@ process sortTssBedProcess {
 	
 	script:
 	"""
+    PROCESS_BLOCK='sortTssBedProcess'
+    SAMPLE_NAME="na"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outBed="${tssBedMap['sample']}-${tssBedMap['genome']}.tss_file.sorted.bed.gz"
 
 	zcat ${tssBedMap['inBed']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'zcat --version | head -1' 'sort --version | head -1' 'gzip --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -474,9 +510,23 @@ process sortChromosomeSizeProcess {
 	
 	script:
 	"""
+    PROCESS_BLOCK='sortChromosomeSizeProcess'
+    SAMPLE_NAME="na"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outTxt="${chromosomeSizeMap['sample']}-${chromosomeSizeMap['genome']}.chromosome_sizes.sorted.txt"
 
 	cat ${chromosomeSizeMap['inTxt']} | sort -k1,1V -k2,2n -k3,3n > \${outTxt}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sort --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -513,8 +563,22 @@ process sortPeakFileProcess {
 
     script:
     """
+    PROCESS_BLOCK='sortPeakFileProcess'
+    SAMPLE_NAME="na"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outBed="${peakFileMap['sample']}-${peakFileMap['nameBed']}"
     zcat -f ${peakFileMap['inBed']} | sort -k1,1V -k2,2n -k3,3n > \${outBed}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sort --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -537,6 +601,14 @@ process sortPeakFileProcess {
 **      in the nextflow.config file.
 **   o  request memory in MB units rather than GB in case
 **      # GB / # cpus < 1.0
+**   o  processing:
+**        o  filter non-primary sequence alignments (keeping Mt
+**           alignments too) using samtools view
+**        o  divert Mt alignments to file ${outMito}.sam and
+**           pass remaining alignments
+**        o  filter out non-primary sequence alignments without
+**           Mt: this is likely useless here
+**        o  sort resulting alignment files
 */
 
 Channel
@@ -547,27 +619,69 @@ process runAlignProcess {
     memory "${alignMap['aligner_memory'].multiply(1024.0).div(task.cpus).round()}MB"
 	cache 'lenient'
     errorStrategy onError
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*_L[0-9][0-9][0-9].bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.mito.bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*.stderr", mode: 'copy'
  
 	input:
 	val alignMap from runAlignInChannel
 
 	output:
-	file( "*.bam" ) into runAlignOutChannel
+	file( "*_L[0-9][0-9][0-9].bam" ) into runAlignOutChannel
+    file( "*.mito.bam" ) into runAlignMitoOutChannel
+	file( "*.stderr" ) into runAlignStderrChannel
 
 	script:
 	"""
-	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
+    PROCESS_BLOCK='runAlignProcess'
+    SAMPLE_NAME="${alignMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
 
-	bowtie2 -3 1 \
-		-X 2000 \
-		-p ${task.cpus} \
-		-x ${alignMap['genome_index']} \
-		-1 ${alignMap['fastq1']} \
-		-2 ${alignMap['fastq2']} ${alignMap['seed']} \
-		| samtools view -L ${alignMap['whitelist']} -f3 -F12 -q10 -bS - > \${outBam}.tmp.bam
-        samtools sort -T \${outBam}.sorttemp --threads 4 \${outBam}.tmp.bam -o \${outBam}
-        rm \${outBam}.tmp.bam
+    bowtieStderr="${alignMap['sample']}-${alignMap['lane']}.bowtie.stderr"
+    samtoolsViewStderr="${alignMap['sample']}-${alignMap['lane']}.samtools_view.stderr"
+    samtoolsSortStderr="${alignMap['sample']}-${alignMap['lane']}.samtools_sort.stderr"
+	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
+    outMito="${alignMap['sample']}-${alignMap['lane']}.mito"
+
+    if [ "${alignMap['has_whitelist_with_mt']}" == "true" ]
+    then
+      bowtie2 -3 1 \
+          -X 2000 \
+          -p ${task.cpus} \
+          -x ${alignMap['genome_index']} \
+          -1 ${alignMap['fastq1']} \
+          -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
+          | samtools view -h -L ${alignMap['whitelist_with_mt']} -f3 -F12 -q10 - 2> \${samtoolsViewStderr} \
+          | ${script_dir}/divert_mito_alignments.py -o \${outMito}.sam \
+          | samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}
+  
+      samtools sort -T \${outMito}.sorttemp --threads 4 \${outMito}.sam -o \${outMito}.bam
+      rm \${outMito}.sam
+    else
+      bowtie2 -3 1 \
+          -X 2000 \
+          -p ${task.cpus} \
+          -x ${alignMap['genome_index']} \
+          -1 ${alignMap['fastq1']} \
+          -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
+          | samtools view -h -L ${alignMap['whitelist']} -f3 -F12 -q10 - 2> \${samtoolsViewStderr} \
+          | samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}
+
+      samtools view -H -o \${outMito}.bam \${outBam}
+    fi
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    MITO_READS="{\\\"mitochondrial_reads\\\": ${alignMap['has_whitelist_with_mt']}}"
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'bowtie2 --version | head -1' 'samtools --version | head -2' 'bedtools --version' 'awk --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -f \${bowtieStderr} \
+    -j "\${MITO_READS}" \
+    -d ${log_dir}
 	"""
 }
 
@@ -594,6 +708,10 @@ process mergeBamsProcess {
 	
 	script:
 	"""
+    PROCESS_BLOCK='mergeBamsProcess'
+    SAMPLE_NAME="${inMergeBamMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outBam="${inMergeBamMap['sample']}-merged.bam"
 
     if [ ${inMergeBamMap['numBamFiles']} -gt 1 ]
@@ -610,7 +728,67 @@ process mergeBamsProcess {
     ln -sf ../merge_bams/\${outBam} .
     ln -sf ../merge_bams/\${outBam}.bai .
     popd
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sambamba --version 2>&1 > /dev/null | head -2 | tail -1' 'samtools --version | head -2' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
+}
+
+
+/*
+** Merge mitochondrial alignment bam files.
+*/
+runAlignMitoOutChannel
+    .toList()
+    .flatMap { mergeMitoBamChannelSetup( it, sampleLaneMap ) }
+    .set { mergeMitoBamsInChannel }
+
+process mergeMitoBamsProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "merge_bams" ) }, pattern: "*.bai", mode: 'copy'
+
+    input:
+    set file( inMitoBams ), inMergeMitoBamMap from mergeMitoBamsInChannel
+
+    output:
+    file( "*" ) into mergeMitoBamsOutChannelBam
+   
+    script:
+    """
+    PROCESS_BLOCK='mergeMitoBamsProcess'
+    SAMPLE_NAME="${inMergeMitoBamMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    outMitoBam="${inMergeMitoBamMap['sample']}-merged.mito.bam"
+   
+    sambamba merge --nthreads ${task.cpus} \${outMitoBam} ${inMitoBams}
+    samtools index \${outMitoBam}
+
+    mkdir -p ${analyze_dir}/${inMergeMitoBamMap['sample']}/genome_browser
+    pushd ${analyze_dir}/${inMergeMitoBamMap['sample']}/genome_browser
+    ln -sf ../merge_bams/\${outMitoBam} .
+    ln -sf ../merge_bams/\${outMitoBam}.bai .
+    popd
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sambamba --version 2>&1 > /dev/null | head -2 | tail -1' 'samtools --version | head -2' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
+    """
 }
 
 
@@ -660,6 +838,10 @@ process getUniqueFragmentsProcess {
 		
 	script:
 	"""
+    PROCESS_BLOCK='getUniqueFragmentsProcess'
+    SAMPLE_NAME="${inUniqueFragmentsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	source ${pipeline_path}/load_python_env_reqs.sh
 	source ${script_dir}/python_env/bin/activate
 
@@ -668,9 +850,6 @@ process getUniqueFragmentsProcess {
 	outInsertSizes="${inUniqueFragmentsMap['sample']}-insert_sizes.txt"
 	outDuplicateReport="${inUniqueFragmentsMap['sample']}-duplicate_report.txt"
 	
-	fragments_uncompressed=`echo "${inUniqueFragmentsMap['fragments_file']}" | sed 's/.gz//'`
-	transposition_sites_uncompressed=`echo "${inUniqueFragmentsMap['transposition_sites_file']}" | sed 's/.gz//'`
-
 	python ${script_dir}/get_unique_fragments.py \
 		${inBam} \
 		--fragments \${outFragments} \
@@ -691,6 +870,18 @@ process getUniqueFragmentsProcess {
     
     bedtools genomecov -ibam ${inBam} -bga | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' > \${outBedGraph}
     # bedGraphToBigWig \${outBedGraph} $inGenomeSizes \${outBigWig}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'bedtools --version | head -1' 'awk --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -708,10 +899,150 @@ getUniqueFragmentsOutChannelTranspositionSites
             getUniqueFragmentsOutChannelTranspositionSitesCopy07;
             getUniqueFragmentsOutChannelTranspositionSitesCopy08 }
 
+/*
+** This set operation has no value but I leave it for now.
+*/
 getUniqueFragmentOutChannelFragments
 	.set { getUniqueFragmentOutChannelFragmentsCopy01 }
+
+getUniqueFragmentsOutChannelDuplicateReport
+	.into { getUniqueFragmentsOutChannelDuplicateReportCopy01;
+            getUniqueFragmentsOutChannelDuplicateReportCopy02 }
+
+/*
+** Dedup mitochondrial fragments.
+*/
+mergeMitoBamsOutChannelBam
+    .flatten()
+	.toList()
+	.flatMap { getUniqueFragmentsMitoChannelSetupBam( it, sampleSortedNames ) }
+	.set { getUniqueFragmentsMitoInChannelBam }
+
+process getUniqueFragmentsMitoProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.transposition_sites.bed.gz*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.fragments.txt.gz*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.insert_sizes.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-mito.duplicate_report.txt", mode: 'copy'
+    
+	input:
+	set file( inMitoBam ), file(inMitoBai), inUniqueFragmentsMitoMap from getUniqueFragmentsMitoInChannelBam
+
+	output:
+	file( "*-mito.transposition_sites.bed.gz*" ) into getUniqueFragmentsMitoOutChannelTranspositionSites  // get both -transposition_sites.bed.gz and -transposition_sites.bed.gz.tbi files
+	file( "*-mito.fragments.txt.gz*" ) into getUniqueFragmentMitoOutChannelFragments  // get both -fragments.txt.gz and -fragments.txt.gz.tbi files
+	file( "*-mito.insert_sizes.txt" ) into getUniqueFragmentsMitoOutChannelInsertSizeDistribution
+	file( "*-mito.duplicate_report.txt" ) into getUniqueFragmentsMitoOutChannelDuplicateReport
+		
+	script:
+	"""
+    PROCESS_BLOCK='getUniqueFragmentsMitoProcess'
+    SAMPLE_NAME="${inUniqueFragmentsMitoMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+	source ${pipeline_path}/load_python_env_reqs.sh
+	source ${script_dir}/python_env/bin/activate
+
+	outMitoFragments="${inUniqueFragmentsMitoMap['sample']}-mito.fragments.txt"
+	outMitoTranspositionSites="${inUniqueFragmentsMitoMap['sample']}-mito.transposition_sites.bed"
+	outMitoInsertSizes="${inUniqueFragmentsMitoMap['sample']}-mito.insert_sizes.txt"
+	outMitoDuplicateReport="${inUniqueFragmentsMitoMap['sample']}-mito.duplicate_report.txt"
 	
-	
+	python ${script_dir}/get_unique_fragments.py \
+		${inMitoBam} \
+		--fragments \${outMitoFragments} \
+		--transposition_sites_bed \${outMitoTranspositionSites} \
+		--duplicate_read_counts \${outMitoDuplicateReport} \
+		--insert_sizes \${outMitoInsertSizes}
+
+	# Index BAM file / bgzip tabix index for fragments file and transposition_sites BED
+	bgzip -f \${outMitoFragments}
+	tabix -p bed \${outMitoFragments}.gz
+
+	bgzip -f \${outMitoTranspositionSites}
+	tabix -p bed \${outMitoTranspositionSites}.gz
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'bedtools --version | head -1' 'awk --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
+	"""
+}
+
+
+/*
+** Combine mitochondrial and non-mitochondrial read counts.
+*/
+/*
+** input channels:
+**   getUniqueFragmentsOutChannelDuplicateReportCopy02
+**   getUniqueFragmentsMitoOutChannelDuplicateReport
+**
+** similar channel processing
+** getUniqueFragmentsOutChannelDuplicateReportCopy01
+**     .toList()
+**     .flatMap { makeCountReportsChannelSetupDuplicateReport( it, sampleSortedNames ) }
+**     .set { makeCountReportsInChannelDuplicateReport }
+*/
+
+getUniqueFragmentsOutChannelDuplicateReportCopy02
+	.toList()
+	.flatMap { combineReadCountsChannelSetupDuplicateReport( it, sampleSortedNames ) }
+	.set { combineReadCountsInChannelDuplicateReport }
+
+getUniqueFragmentsMitoOutChannelDuplicateReport
+    .toList()
+    .flatMap { combineReadCountsChannelSetupMitoDuplicateReport( it, sampleSortedNames ) }
+    .set { combineReadCountsInChannelMitoDuplicateReport }
+
+process combineReadCountsProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "get_unique_fragments" ) }, pattern: "*-combined.duplicate_report.txt", mode: 'copy'
+
+    input:
+    set file( inDuplicateReport ), inDuplicateReportMap from combineReadCountsInChannelDuplicateReport
+    set file( inMitoDuplicateReport ), inMitoDuplicateReportMap from combineReadCountsInChannelMitoDuplicateReport
+
+    output:
+    file( "*-combined.duplicate_report.txt" ) into combineReadCountsOutChannelCombinedReadCounts
+
+    script:
+    """
+    PROCESS_BLOCK='combineReadCountsProcess'
+    SAMPLE_NAME="${inDuplicateReportMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    outDuplicateReport="${inDuplicateReportMap['sample']}-combined.duplicate_report.txt"
+
+	python ${script_dir}/combine_read_counts.py --input_duplicate_report ${inDuplicateReport} --input_mito_duplicate_report ${inMitoDuplicateReport} --output_combined_duplicate_report \${outDuplicateReport}
+echo foo
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
+    """
+}
+
+combineReadCountsOutChannelCombinedReadCounts
+    .into { combineReadCountsOutChannelCombinedReadCountsCopy01;
+            combineReadCountsOutChannelCombinedReadCountsCopy02 }
+
+
 /*
 ** ================================================================================
 ** Call peaks.
@@ -741,6 +1072,10 @@ process callPeaksProcess {
 	
     script:
 	"""
+    PROCESS_BLOCK='callPeaksProcess'
+    SAMPLE_NAME="${inCallPeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	# MACS uses an underscore between the sample name and the file type
 	# so we need to rename output files.
 	outDir="call_peaks"
@@ -773,6 +1108,16 @@ process callPeaksProcess {
 	mv \${outMacsSummits} \${outSummits}
 	
 	rm \${outMacsNarrowPeak}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'macs2 --version' 'sort --version | head -1' 'cut --version | head -1' 'gzip --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -822,6 +1167,10 @@ process mergePeaksByGroupProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='mergePeaksByGroupProcess'
+    SAMPLE_NAME="peaks.${mergePeaksMap['group']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outGroupBed="${mergePeaksMap['group']}-group_merged_peaks_set.bed"
 
     zcat inBeds* \
@@ -841,6 +1190,16 @@ process mergePeaksByGroupProcess {
       outBedList="\${outSample}-merge_by_group_beds.txt"
       echo "${mergePeaksMap['listBeds']}" > \${outBedList}
     done
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'zcat --version | head -1' 'cut --version | head -1' 'bedtools --version' 'sort --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -877,6 +1236,10 @@ process mergePeaksByFileProcess {
 
     script:
     """
+    PROCESS_BLOCK='mergePeaksByFileProcess'
+    SAMPLE_NAME="${mergePeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outBed="${mergePeaksMap['sample']}-merged_peaks.bed"
     cat inBeds* \
         | cut -f1-3 \
@@ -886,6 +1249,16 @@ process mergePeaksByFileProcess {
 
     outBedList="${mergePeaksMap['sample']}-merge_by_file_beds.txt"
     echo "${mergePeaksMap['listBeds']}" > \${outBedList}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'cut --version | head -1' 'sort --version | head -1' 'bedtools --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -927,12 +1300,26 @@ process makeWindowedGenomeIntervalsProcess {
         
 	script:
 	"""
+    PROCESS_BLOCK='makeWindowedGenomeIntervalsProcess'
+    SAMPLE_NAME="${inGenomeSizesMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outBed="${inGenomeSizesMap['sample']}-genomic_windows.bed"
 	
     bedtools makewindows \
         -g ${inGenomeSizes} \
         -w ${task.ext.window_size} \
         > \${outBed}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'bedtools --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -964,13 +1351,31 @@ process makePromoterSumIntervalsProcess {
     script:
     if( inMap['hasGeneScoreBed'] == 1 )
     	"""
+        PROCESS_BLOCK='makePromoterSumIntervalsProcess'
+        SAMPLE_NAME="${inMap['sample']}"
+        START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     	outBed="${inMap['sample']}-gene_regions.bed.gz"
         
         zcat ${inMap['inBedFile']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}
         echo "Gene score bed file was used to define gene regions" > ${inMap['sample']}-gene_regions_note.txt
+
+        STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+        $script_dir/pipeline_logger.py \
+        -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+        -n \${SAMPLE_NAME} \
+        -p \${PROCESS_BLOCK} \
+        -v 'zcat --version | head -1' 'sort --version | head -1' 'gzip --version | head -1' \
+        -s \${START_TIME} \
+        -e \${STOP_TIME} \
+        -d ${log_dir}
         """
 	else
         """
+        PROCESS_BLOCK='makePromoterSumIntervalsProcess'
+        SAMPLE_NAME="${inMap['sample']}"
+        START_TIME=`date '+%Y%m%d:%H%M%S'`
+
         outBed="${inMap['sample']}-gene_regions.bed.gz"
         
         bedtools closest \
@@ -989,6 +1394,16 @@ process makePromoterSumIntervalsProcess {
         | sort -k1,1V -k2,2n -k3,3n \
         | uniq | gzip > \${outBed}
         echo "TSS definitions and peak locations were used to define gene regions (check this description)" > ${inMap['sample']}-gene_regions_note.txt
+
+        STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+        $script_dir/pipeline_logger.py \
+        -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+        -n \${SAMPLE_NAME} \
+        -p \${PROCESS_BLOCK} \
+        -v 'bedtools --version' 'awk --version | head -1' 'cut --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' 'gzip --version | head -1' \
+        -s \${START_TIME} \
+        -e \${STOP_TIME} \
+        -d ${log_dir}
         """
 }
 
@@ -1033,6 +1448,10 @@ process makeMergedPeakRegionCountsProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeMergedPeakRegionCountsProcess'
+    SAMPLE_NAME="${inMergedPeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1049,6 +1468,18 @@ process makeMergedPeakRegionCountsProcess {
         --output_file \${outCounts}
 
     rm \${tmpRegions}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'bedtools --version' 'gzip --version | head -1' 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1087,6 +1518,10 @@ process makeTssRegionCountsProcess {
 
     script:
     """
+    PROCESS_BLOCK='makeTssRegionCountsProcess'
+    SAMPLE_NAME="${inTssRegionMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1104,6 +1539,18 @@ process makeTssRegionCountsProcess {
         --output_file \${outCounts}
 
     rm \${tmpRegions}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'bedtools --version' 'gzip --version | head -1' 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -1114,7 +1561,7 @@ process makeTssRegionCountsProcess {
 ** ================================================================================
 */
 
-getUniqueFragmentsOutChannelDuplicateReport
+getUniqueFragmentsOutChannelDuplicateReportCopy01
     .toList()
     .flatMap { makeCountReportsChannelSetupDuplicateReport( it, sampleSortedNames ) }
     .set { makeCountReportsInChannelDuplicateReport }
@@ -1144,9 +1591,23 @@ process makeCountReportsProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeCountReportsProcess'
+    SAMPLE_NAME="${inDuplicateReportMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outCountReport="${inDuplicateReportMap['sample']}-count_report.txt"
 	
     Rscript ${script_dir}/make_count_report.R ${inDuplicateReport} ${inMergedPeakRegionCounts} ${inTssRegionCounts} \${outCountReport}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'R --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1191,6 +1652,10 @@ process callCellsProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='callCellsProcess'
+    SAMPLE_NAME="${inCountReportMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1206,6 +1671,18 @@ process callCellsProcess {
     mv \${outCellWhiteList} cell_whitelist.txt.tmp
     sort cell_whitelist.txt.tmp > \${outCellWhiteList}
     rm cell_whitelist.txt.tmp
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'sort --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1253,6 +1730,10 @@ process getPerBaseCoverageTssProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='getPerBaseCoverageTssProcess'
+    SAMPLE_NAME="${inTssRegionMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	outCoverage="${inTssRegionMap['sample']}-tss_region_coverage.txt.gz"
 	tmpOut="${inTssRegionMap['sample']}-temp_file.gz"
 	
@@ -1268,6 +1749,16 @@ process getPerBaseCoverageTssProcess {
     Rscript ${script_dir}/aggregate_per_base_tss_region_counts.R \${tmpOut} \${outCoverage}
 
     rm \${tmpOut}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'bedtools --version' 'awk --version | head -1' 'gzip --version | head -1' 'R --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1318,6 +1809,10 @@ process makePeakMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makePeakMatrixProcess'
+    SAMPLE_NAME="${inMergedPeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1328,6 +1823,18 @@ process makePeakMatrixProcess {
     --intervals ${inMergedPeaks} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output \${outPeakMatrix}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1372,6 +1879,10 @@ process makeWindowMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeWindowMatrixProcess'
+    SAMPLE_NAME="${inWindowedIntervalsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1382,6 +1893,18 @@ process makeWindowMatrixProcess {
     --intervals ${inWindowedIntervals} \
     --cell_whitelist ${inCellWhitelist} \
     --matrix_output \${outWindowMatrix}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'bedtools --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1426,6 +1949,10 @@ process makePromoterMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makePromoterMatrixProcess'
+    SAMPLE_NAME="${inGeneRegionsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
 
@@ -1441,6 +1968,18 @@ process makePromoterMatrixProcess {
     ${script_dir}/add_gene_metadata.py --in_promoter_matrix_row_name_file promoter_matrix_rows.txt.no_metadata \
                                        --gene_metadata_file ${inGeneRegionsMap['inGeneBodiesGeneMap']} \
                                        --out_promoter_matrix_row_name_file ${inGeneRegionsMap['inPromoterMatrixRows']}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1501,6 +2040,11 @@ makeWindowMatrixOutChannel
     .toList()
     .flatMap { summarizeCellCallsSetupWindowMatrix( it, sampleSortedNames ) }
     .set { summarizeCellCallsInChannelWindowMatrix }
+
+combineReadCountsOutChannelCombinedReadCountsCopy01
+    .toList()
+    .flatMap { summarizeCellCallsSetupCombinedReadCounts( it, sampleSortedNames ) }
+    .set { summarizeCellCallsInChannelCombinedReadCounts }
     
 Channel
     .fromList( summarizeCellCallsSetupTestBarnyard( sampleSortedNames, sampleGenomeMap ) )
@@ -1522,6 +2066,7 @@ process summarizeCellCallsProcess {
     set file( inMergedPeaks ), inMergedPeaksMap from summarizeCellCallsInChannelMergedPeaks
     set file( inPerBaseCoverageTss ), inPerBaseCoverageTss from summarizeCellCallsInChannelPerBaseCoverageTss
     set file( inWindowMatrix ), file( inWindowMatrixRowNames ), file( inWindowMatrixColNames), inWindowMatrixMap from summarizeCellCallsInChannelWindowMatrix
+    set file( inCombinedDuplicateReport ), inCombinedReadCountsMap from summarizeCellCallsInChannelCombinedReadCounts
     val inBarnyardMap from summarizeCellCallsInChannelTestBarnyard
     
     output:
@@ -1531,6 +2076,10 @@ process summarizeCellCallsProcess {
     
     script:
     """
+    PROCESS_BLOCK='summarizeCellCallsProcess'
+    SAMPLE_NAME="${inCountReportsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outSummaryPlot="${inCountReportsMap['sample']}-called_cells_summary.pdf"
     outSummaryStats="${inCountReportsMap['sample']}-called_cells_summary.stats.txt"
 
@@ -1564,8 +2113,19 @@ process summarizeCellCallsProcess {
         --peak_call_files ${inNarrowPeaks} \
         --merged_peaks ${inMergedPeaks} \
         --per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
+        --combined_duplicate_report ${inCombinedDuplicateReport} \
         --plot \${outSummaryPlot} \
         --output_stats \${outSummaryStats} \${barnyardParams}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'R --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -1623,8 +2183,15 @@ process makeGenomeBrowserFilesProcess {
     file( "*-merged_peaks.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelMergedPeaksBB
     file( "*-transposition_sites.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelTranspositionSitesBB
 
+    when:
+		params.make_genome_browser_files
+
     script:
     """
+    PROCESS_BLOCK='makeGenomeBrowserFilesProcess'
+    SAMPLE_NAME="${inTssRegionsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outTssGb="${inTssRegionsMap['sample']}-${inTssRegionsMap['genome']}.tss_file.sorted.gb"
     outMergedPeaksGb="${inMergedPeaksMap['sample']}-merged_peaks.gb"
     outTranspositionSitesGb="${inTranspositionSitesMap['sample']}-transposition_sites.gb"
@@ -1643,6 +2210,16 @@ process makeGenomeBrowserFilesProcess {
     bedToBigBed -tab \${outTranspositionSitesGb}.bed chromosome_size.txt.edited \${outTranspositionSitesGb}.bb
     bgzip \${outTranspositionSitesGb}.bed
     tabix -p bed \${outTranspositionSitesGb}.bed.gz
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'awk --version | head -1' 'zcat --version | head -1' 'bedToBigBed 2>&1 > /dev/null | head -1' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'zcat --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -1694,6 +2271,10 @@ process getBandingScoresProcess {
 
     script:
     """
+    PROCESS_BLOCK='getBandingScoresProcess'
+    SAMPLE_NAME="${inFragmentsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     # output filenames
     source ${pipeline_path}/load_python_env_reqs.sh
     source ${script_dir}/python_env/bin/activate
@@ -1704,6 +2285,18 @@ process getBandingScoresProcess {
     python ${script_dir}/get_insert_size_distribution_per_cell.py ${inFragments} \${outPerCellInsertSizesFile} --barcodes ${inCellWhitelist}
     
     Rscript ${script_dir}/calculate_nucleosome_banding_scores.R \${outPerCellInsertSizesFile} \${outBandingScoresFile} --barcodes ${inCellWhitelist}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'R --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -1769,6 +2362,10 @@ process callMotifsProcess {
 		
 	script:
 	"""
+    PROCESS_BLOCK='callMotifsProcess'
+    SAMPLE_NAME="${inMergedPeaksMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	source ${pipeline_path}/load_python_env_reqs.sh
 	source ${script_dir}/python_env/bin/activate
 	
@@ -1776,6 +2373,18 @@ process callMotifsProcess {
 	outGcBinned="${inMergedPeaksMap['sample']}-gc_\${gc_bin_padded}-peak_calls.bb"
 	
 	python ${script_dir}/call_peak_motifs.py ${inMergedPeaksMap['fasta']} ${inMergedPeaks} ${inMergedPeaksMap['motifs']} \${outGcBinned} --gc_bin ${inMergedPeaksMap['gc_bin']} --pwm_threshold ${task.ext.pwm_threshold}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'awk --version | head -1' 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1825,6 +2434,10 @@ process makeMotifMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeMotifMatrixProcess'
+    SAMPLE_NAME="${inPeakCallsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	source ${pipeline_path}/load_python_env_reqs.sh
 	source ${script_dir}/python_env/bin/activate
 	
@@ -1836,6 +2449,18 @@ process makeMotifMatrixProcess {
 	--peaks ${inMergedPeaks} \
 	--motifs ${inPeakCallsMap['motifs']} \
 	--peak_tf_matrix \${outPeakTfMatrix}
+
+    deactivate
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -1882,6 +2507,11 @@ makeCountReportsOutChannelCopy03
     .flatMap { makeReducedDimensionMatrixChannelSetupCountReport( it, sampleSortedNames ) }
     .set { makeReducedDimensionMatrixInChannelCountReport }
 
+combineReadCountsOutChannelCombinedReadCountsCopy02
+    .toList()
+    .flatMap { makeReducedDimensionMatrixChannelSetupCombinedReadCounts( it, sampleSortedNames ) }
+    .set { makeReducedDimensionMatrixInChannelCombinedReadCounts }
+
 process makeReducedDimensionMatrixProcess {
 	cache 'lenient'
     errorStrategy 'ignore'
@@ -1899,6 +2529,7 @@ process makeReducedDimensionMatrixProcess {
 	input:
 	tuple file( inPeakFiles ), inPeakMatrixMap from makeReducedDimensionMatrixInChannelPeakMatrix
     tuple file( inCountReport ), inCountReportMap from makeReducedDimensionMatrixInChannelCountReport
+    tuple file( inCombinedDuplicateReport ), inCombinedDuplicateReportMap from makeReducedDimensionMatrixInChannelCombinedReadCounts
 
 	output:
     file("*-lsi_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
@@ -1912,17 +2543,21 @@ process makeReducedDimensionMatrixProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='makeReducedDimensionMatrixProcess'
+    SAMPLE_NAME="${inPeakMatrixMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     inPeakMatrix="${inPeakMatrixMap['sample']}-peak_matrix.mtx.gz"
     inSampleName="${inPeakMatrixMap['sample']}"
 
-   	 outScrubletHistFile="${inPeakMatrixMap['sample']}-scrublet_hist.png"
+ 	outScrubletHistFile="${inPeakMatrixMap['sample']}-scrublet_hist.png"
     outScrubletTableFile="${inPeakMatrixMap['sample']}-scrublet_table.csv"
 	outLsiCoordsFile="${inPeakMatrixMap['sample']}-lsi_coords.txt"
 	outUmapCoordsFile="${inPeakMatrixMap['sample']}-umap_coords.txt"
 	outUmapPlotFile="${inPeakMatrixMap['sample']}-umap_plot"
 	outMonocle3CdsFile="${inPeakMatrixMap['sample']}-monocle3_cds.rds"
     outBlackListRegionsFile="${inPeakMatrixMap['sample']}-blacklist_regions_file.log"
-
+    outReduceDimensionsLogFile="${inPeakMatrixMap['sample']}-reduce_dimensions.log"
     umi_cutoff=$task.ext.umi_cutoff
     frip_cutoff=$task.ext.frip_cutoff
     frit_cutoff=$task.ext.frit_cutoff
@@ -1962,6 +2597,7 @@ process makeReducedDimensionMatrixProcess {
     --doublet_predict_top_ntile \${doublet_predict_top_ntile} \
     --num_lsi_dimensions \${num_lsi_dimensions} \
     --cluster_resolution \${cluster_resolution} \
+    --combined_read_count ${inCombinedDuplicateReport} \
     --cds_file \${outMonocle3CdsFile} \
     --lsi_coords_file \${outLsiCoordsFile} \
     --umap_coords_file \${outUmapCoordsFile} \
@@ -2001,6 +2637,17 @@ process makeReducedDimensionMatrixProcess {
     then
       touch "\${outBlackListRegionsFile}"
     fi
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'R --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -f \${outReduceDimensionsLogFile} \${outBlackListRegionsFile} \
+    -d ${log_dir}
 	"""
 }
 
@@ -2029,6 +2676,10 @@ process experimentDashboardProcess {
 
 	script:
 	"""
+    PROCESS_BLOCK='experimentDashboardProcess'
+    SAMPLE_NAME="all"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 	mkdir -p ${output_dir}/analyze_dash/js
 	${script_dir}/make_run_data.py -i ${output_dir}/analyze_out/args.json -o run_data.js
 	
@@ -2037,6 +2688,16 @@ process experimentDashboardProcess {
 	cp ${script_dir}/skeleton_dash/js/* ${output_dir}/analyze_dash/js
 	cp -r ${script_dir}/skeleton_dash/style ${output_dir}/analyze_dash
 	cp ${script_dir}/skeleton_dash/exp_dash.html ${output_dir}/analyze_dash
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
 	"""
 }
 
@@ -2075,11 +2736,15 @@ process makeMergedPlotFilesProcess {
 
     script:
     """
+    PROCESS_BLOCK='makeMergedPlotFilesProcess'
+    SAMPLE_NAME="na"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     mkdir -p ${output_dir}/analyze_out/merged_plots
     ${script_dir}/merge_summary_plots.py -i ${output_dir}/analyze_out/args.json -o merged.called_cells_summary.pdf
     ${script_dir}/merge_umap_plots.py -i ${output_dir}/analyze_out/args.json -o merged.umap_plots.pdf
 
-    header='sample cell_threshold fraction_hs fraction_tss median_per_cell_frip median_per_cell_frit tss_enrichment sample_peaks_called total_merged_peaks total_reads fraction_reads_in_cells total_barcodes number_of_cells median_reads_per_cell min_reads_per_cell max_reads_per_cell median_duplication_rate median_fraction_molecules_observed median_total_fragments total_deduplicated_reads [bloom_collision_rate]'
+    header='sample cell_threshold fraction_hs fraction_tss median_per_cell_frip median_per_cell_frit tss_enrichment sample_peaks_called total_merged_peaks total_reads fraction_reads_in_cells total_barcodes number_of_cells median_reads_per_cell min_reads_per_cell max_reads_per_cell median_duplication_rate median_fraction_molecules_observed median_total_fragments total_deduplicated_reads fraction_mitochondrial_reads [bloom_collision_rate]'
     stats_file='merged.called_cells_summary.stats.csv'
     header_wtabs=`echo \${header} | sed 's/ /\t/g'`
     rm -f \${stats_file}
@@ -2089,6 +2754,16 @@ process makeMergedPlotFilesProcess {
     do
       tail -n +2 \${fil} >> \${stats_file}
     done
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'python3 --version' 'sed --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
     """
 }
 
@@ -2218,10 +2893,30 @@ def reportRunParams( params ) {
     }
 	if( params.reads_threshold != null ) {
 	   s += String.format( "Threshold for # reads/cell:           %s\n", params.reads_threshold )
-	}
-	if( params.calculate_banding_scores != null ) {
-	   s += String.format( "Calculate banding scores:             %s\n", params.calculate_banding_scores )
-	}
+	} else {
+       s += String.format( "Threshold for # reads/cell:           default\n" )
+    }
+    if( params.filter_blacklist_regions != null ) {
+       s += String.format( "Filter blacklist regions:             %s\n", params.filter_blacklist_regions )
+    } else {
+       s += String.format( "Filter blacklist regions:             default\n" )
+    }
+    if( params.doublet_predict != null ) {
+       s += String.format( "Run doublet detection:                %s\n", params.doublet_predict )
+    } else {
+       s += String.format( "Run doublet detection:                default\n" )
+    }
+    if( params.make_genome_browser_files != null ) {
+       s += String.format( "Make genome browser files:            %s\n", params.make_genome_browser_files )
+    } else {
+       s += String.format( "Make genome browser files:            default\n" )
+    }
+    if( params.calculate_banding_scores != null ) {
+       s += String.format( "Calculate banding scores:             %s\n", params.calculate_banding_scores )
+    } else {
+       s += String.format( "Calculate banding scores:             default\n" )
+    }
+
 	s += String.format( "\n" )
 	print( s )
 	
@@ -2308,7 +3003,7 @@ def checkFile( fileName ) {
 /*
 ** Check directories for existence and/or accessibility.
 */
-def checkDirectories( params ) {
+def checkDirectories( params, log_dir, tmp_dir ) {
 	def dirName
 	
 	/*
@@ -2324,6 +3019,17 @@ def checkDirectories( params ) {
 	*/
 	dirName = analyze_dir
 	makeDirectory( dirName )
+
+    /*
+    ** Check that either the log_dir exists or we can create it.
+    */
+    makeDirectory( log_dir )
+
+    /*
+    ** Check that either the tmp_dir exists or we can create it.
+    */
+    dirName = tmp_dir
+    makeDirectory( dirName )
 }
 
 
@@ -2635,6 +3341,41 @@ def getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson ) {
 }
 
 
+def checkGenomeFiles( params, genomesRequired, genomesJson ) {
+
+    def genomeFileList = [ 'chromosome_sizes', 'whitelist_regions', 'whitelist_with_mt_regions', 'blacklist_regions', 'tss', 'gene_score_bed', 'gene_bodies_gene_map', 'fasta', 'motifs']
+    def requiredFileList = ['chromosome_sizes', 'whitelist_regions', 'tss', 'gene_bodies_gene_map']
+
+    genomesRequired.each { aGenome ->
+        if(!genomesJson.containsKey(aGenome)) {
+            printErr("Error: genomes JSON file has no entry for genome \'${aGenome}\'" )
+            System.exit( -1 )
+        }
+
+        errorFlag = false
+        requiredFileList.each { fileType ->
+          if(!genomesJson[aGenome][fileType]) {
+            printErr("Error: genomes JSON file is missing the \'${fileType}\' entry for genome \'${aGenome}\'" )
+            errorFlag = true
+          }
+        }
+
+        if(errorFlag) {
+          System.exit( -1 )
+        }
+
+        genomesJson[aGenome].each { aKey, aValue ->
+            if(genomeFileList.contains(aKey)) {
+                if(!checkFile(aValue)) {
+                    printErr("Error: unable to read genome file \'${aValue}\'" )
+                    System.exit( -1 )
+                }
+            }
+        }
+    }
+}
+
+
 /*
 ** A closure for 'publishing' a file to a sample-specific sub-directory
 */
@@ -2787,12 +3528,22 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
 			def genome_index   = genomesJson[genome]['bowtie_index']
 			def whitelist      = genomesJson[genome]['whitelist_regions']
 			def aligner_memory = genomesJson[genome]['aligner_memory']
+
+            def whitelist_with_mt = null
+            def has_whitelist_with_mt = 'false'
+            if(genomesJson[genome].containsKey('whitelist_with_mt_regions')) {
+              whitelist_with_mt = genomesJson[genome]['whitelist_with_mt_regions']
+              has_whitelist_with_mt = 'true'
+            }
+
 			alignMaps.add( [ 'sample': aSample,
                              'lane': aLane,
-                             'fastq1':fastq1,
-                             'fastq2':fastq2,
-                             'genome_index':genome_index,
-                             'whitelist':whitelist,
+                             'fastq1': fastq1,
+                             'fastq2': fastq2,
+                             'genome_index': genome_index,
+                             'whitelist': whitelist,
+                             'whitelist_with_mt': whitelist_with_mt,
+                             'has_whitelist_with_mt' : has_whitelist_with_mt,
                              'aligner_memory': aligner_memory,
                              'seed': seed ] )
 		}
@@ -2837,7 +3588,7 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 	}
 	filesExpected.each { aFile ->
 		if( !( aFile in filesFound ) ) {
-			printErr( "Error: missing expected  file \'${aFile}\' in channel" )
+			printErr( "Error: missing expected file \'${aFile}\' in channel" )
 			System.exit( -1 )
 		}
 	}
@@ -2866,6 +3617,66 @@ def mergeBamChannelSetup( inPaths, sampleLaneMap ) {
 	}
 	
 	return( outTuples )
+}
+
+
+/*
+** Set up channel to merge mitochondrial bam files.
+** Notes:
+**   o  input file name format: <sample_name>-<run+lane_id>.mito.bam
+**   o  output file name format: <sample_name>.mito.bam
+**   o  check for expected files
+**   o  return a list of tuples where each tuple consists of an
+**      output filename string and a list of input bam file
+**      java/NextFlow paths. There is one entry for each sample.
+*/
+def mergeMitoBamChannelSetup( inPaths, sampleLaneMap ) {
+    /*
+    ** Check for expected BAM files.
+    */
+    def filesExpected = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        lanes.each { aLane ->
+            def fileName = aSample + '-' + aLane + '.mito.bam'
+            filesExpected.add( fileName )
+        }
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Gather input bam files.
+    ** Store them in a map of lists keyed by sample name.
+    */
+    def sampleLaneBamMap = [:]
+    samples.each { aSample ->
+        sampleLaneBamMap[aSample] = []
+    }
+    inPaths.each { aPath ->
+        def sampleName = aPath.getFileName().toString().split( '-' )[0]
+        sampleLaneBamMap[sampleName].add( aPath )
+    }
+
+    /*
+    ** Set up output channel tuples.
+    */
+    def outTuples = []
+    samples.each { aSample ->
+        def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+   
+    return( outTuples )
 }
 
 
@@ -2972,6 +3783,140 @@ def getUniqueFragmentsChannelSetupChromosomeSizes( inPaths, sampleSortedNames, s
         def inGenomicIntervals = aSample + '-' + aGenomeJsonMap['name'] + '.chromosome_sizes.sorted.txt'
         def tuple = new Tuple( fileMap[inGenomicIntervals], [ 'sample': aSample ] )
         outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+/* mito versions */
+
+/*
+** Set up channel to get unique alignment fragments; BAM and BAI files(dedup).
+** Notes:
+** input list of files where file name format: <sample>-merged.bam and <sample>-merged.bam.bai
+** output: list of tuples in which each tuple consists of [0] bam filename,
+**         [1] bai filename, and [2] map of output filenames
+*/
+def getUniqueFragmentsMitoChannelSetupBam( inPaths, sampleSortedNames ) {
+	/*
+	** Check for expected BAM files.
+	*/
+	def filesExpected = []
+	sampleSortedNames.each { aSample ->
+		def fileName = aSample + '-merged.mito.bam'
+		filesExpected.add( fileName )
+	}
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+    	if( !( aFile in filesFound ) ) {
+    		printErr( "Error: missing expected file \'${aFile}\' in channel" )
+    		System.exit( -1 )
+    	}
+    }
+
+    /*
+    ** Deal with a mix of *-merged.mito.bam and *-merged.mito.bam.bai files.
+    ** Notes:
+    **   o  NextFlow stores the pairs of files as a list of two
+    **      files so the elements in inPaths is a list of a list
+    **      of paths.
+    **   o  I put both of the files in the output channel in order
+    **      to be certain that NextFlow makes the required symbolic
+    **      links in the work directory.
+    */
+    def pathMap = [:]
+    sampleSortedNames.each { aSample ->
+        pathMap[aSample] = [:]
+    }
+    inPaths.each { aPath ->
+        def aFile = aPath.getFileName().toString()
+        def aSample = aFile.split( '-' )[0]
+        if( aFile =~ /merged[.]mito[.]bam$/ ) {
+            pathMap[aSample]['bam'] = aPath
+        } else if( aFile =~ /merged[.]mito[.]bam[.]bai$/ ) {
+            pathMap[aSample]['bai'] = aPath
+        } else {
+            println "Warning: getUniqueFragmentsChannelSetupBam: unexpected file \'${fileName}\'"
+        }
+    }
+    
+	/*
+	** Set up output channel tuples.
+	*/
+    
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inBam = pathMap[aSample]['bam']
+        def inBai = pathMap[aSample]['bai']
+        def tuple = new Tuple( inBam, inBai, [ 'sample':aSample ] )
+        outTuples.add( tuple )
+    }
+        
+	return( outTuples )
+}
+
+
+/*
+** Set up channel for combining mitochondrial and non-mitochondrial read counts.
+*/
+def combineReadCountsChannelSetupDuplicateReport( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-duplicate_report.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+       def inTxt = aSample + '-duplicate_report.txt'
+       def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
+       outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+/*
+** Set up channel for combining mitochondrial and non-mitochondrial read counts.
+*/
+def combineReadCountsChannelSetupMitoDuplicateReport( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-mito.duplicate_report.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+       def inTxt = aSample + '-mito.duplicate_report.txt'
+       def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
+       outTuples.add( tuple )
     }
 
     return( outTuples )
@@ -4562,6 +5507,35 @@ def summarizeCellCallsSetupWindowMatrix( inPaths, sampleSortedNames ) {
 }
 
 
+def summarizeCellCallsSetupCombinedReadCounts( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected input pathss.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-combined.duplicate_report.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inCombinedDuplicateReport = aSample + '-combined.duplicate_report.txt'
+        def tuple = new Tuple( fileMap[inCombinedDuplicateReport], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
 def summarizeCellCallsSetupTestBarnyard( sampleSortedNames, sampleGenomeMap ) {
     def outMaps = []
     sampleSortedNames.each { aSample ->
@@ -5036,6 +6010,35 @@ def makeReducedDimensionMatrixChannelSetupCountReport( inPaths, sampleSortedName
     sampleSortedNames.each { aSample ->
         def inCountReport = aSample + '-count_report.txt'
         def tuple = new Tuple( fileMap[inCountReport], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+def makeReducedDimensionMatrixChannelSetupCombinedReadCounts( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected input paths.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-combined.duplicate_report.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inCombinedDuplicateReport = aSample + '-combined.duplicate_report.txt'
+        def tuple = new Tuple( fileMap[inCombinedDuplicateReport], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
 
