@@ -242,6 +242,14 @@ import java.nio.file.Files
 import java.nio.file.Path 
 import java.nio.file.Paths
 
+
+/*
+** Nextflow and main.nf versions.
+*/
+nextflow_version = nextflow.version.toString()
+bbi_sciatac_analyze_version = "1.0.0"
+
+
 /*
 ** Run date/time.
 */
@@ -440,6 +448,37 @@ writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow )
 
 /*
 ** ================================================================================
+** Preliminary processes.
+** ================================================================================
+*/
+
+/*
+** Write nextflow and main.nf versions to a log file.
+*/
+process log_pipeline_versions {
+
+    script:
+    """
+    PROCESS_BLOCK='log_pipeline_versions'
+    SAMPLE_NAME="pipeline"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+    PIPELINE_VERSIONS_JSON="{\\\"nextflow_version\\\": ${nextflow_version}, {\\\"bbi_sciatac_analyze_version\\\": ${bbi_sciatac_analyze_version}}"
+
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v "echo -n \\\"Nextflow version: ${nextflow_version}\\\"" "echo -n \\\"bbi_sciatac_analyze_version: ${bbi_sciatac_analyze_version}\\\"" \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir}
+    """
+}
+
+
+/*
+** ================================================================================
 ** Prepare output directories and required files.
 ** ================================================================================
 */
@@ -466,22 +505,33 @@ process sortTssBedProcess {
 	script:
 	"""
     PROCESS_BLOCK='sortTssBedProcess'
-    SAMPLE_NAME="na"
+    SAMPLE_NAME="genome"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
+
 
 	outBed="${tssBedMap['sample']}-${tssBedMap['genome']}.tss_file.sorted.bed.gz"
 
 	zcat ${tssBedMap['inBed']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}
 
+    if [ -n \"${tssBedMap['inGenomeLog']}\" -o -n \"${tssBedMap['inAtacDataLog']}\" ]
+    then
+      LOG_FILES_PARAMETER="-t ${tssBedMap['inGenomeLog']} ${tssBedMap['inAtacDataLog']}"
+    else
+      LOG_FILES_PARAMETER=""
+    fi
+
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
+    -x "Genome ${tssBedMap['genome']}" \
     -p \${PROCESS_BLOCK} \
     -v 'zcat --version | head -1' 'sort --version | head -1' 'gzip --version | head -1' \
+    -j "{\\\"tss_file_path\\\": \\\"${tssBedMap['inBed']}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    \${LOG_FILES_PARAMETER}
 	"""
 }
 
@@ -511,22 +561,32 @@ process sortChromosomeSizeProcess {
 	script:
 	"""
     PROCESS_BLOCK='sortChromosomeSizeProcess'
-    SAMPLE_NAME="na"
+    SAMPLE_NAME="genome"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
 	outTxt="${chromosomeSizeMap['sample']}-${chromosomeSizeMap['genome']}.chromosome_sizes.sorted.txt"
 
 	cat ${chromosomeSizeMap['inTxt']} | sort -k1,1V -k2,2n -k3,3n > \${outTxt}
 
+    if [ -n "${chromosomeSizeMap['inGenomeLog']}" ]
+    then
+      LOG_FILES_PARAMETER="-t ${chromosomeSizeMap['inGenomeLog']}"
+    else
+       LOG_FILES_PARAMETER=""
+    fi
+
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
+    -x "Genome ${chromosomeSizeMap['genome']}" \
     -p \${PROCESS_BLOCK} \
     -v 'sort --version | head -1' \
+    -j "{\\\"chromosome_size_file_path\\\": \\\"${chromosomeSizeMap['inTxt']}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    \${LOG_FILES_PARAMETER}
 	"""
 }
 
@@ -564,7 +624,7 @@ process sortPeakFileProcess {
     script:
     """
     PROCESS_BLOCK='sortPeakFileProcess'
-    SAMPLE_NAME="na"
+    SAMPLE_NAME="peaks"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
     outBed="${peakFileMap['sample']}-${peakFileMap['nameBed']}"
@@ -574,8 +634,10 @@ process sortPeakFileProcess {
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
+    -x ${peakFileMap['sample']} \
     -p \${PROCESS_BLOCK} \
     -v 'sort --version | head -1' \
+    -j "{\\\"peak_file_path\\\": \\\"${peakFileMap['inBed']}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -645,6 +707,7 @@ process runAlignProcess {
 
     if [ "${alignMap['has_whitelist_with_mt']}" == "true" ]
     then
+      WHITELIST_FILE_PATH="${alignMap['whitelist_with_mt']}"
       bowtie2 -3 1 \
           -X 2000 \
           -p ${task.cpus} \
@@ -658,6 +721,7 @@ process runAlignProcess {
       samtools sort -T \${outMito}.sorttemp --threads 4 \${outMito}.sam -o \${outMito}.bam
       rm \${outMito}.sam
     else
+      WHITELIST_FILE_PATH="${alignMap['whitelist']}"
       bowtie2 -3 1 \
           -X 2000 \
           -p ${task.cpus} \
@@ -670,18 +734,28 @@ process runAlignProcess {
       samtools view -H -o \${outMito}.bam \${outBam}
     fi
 
+    if [ -n \"${alignMap['inGenomeLog']}\" -o -n \"${alignMap['inAtacDataLog']}\" ]
+    then
+      LOG_FILES_PARAMETER="-t ${alignMap['inGenomeLog']} ${alignMap['inAtacDataLog']}"
+    else
+      LOG_FILES_PARAMETER=""
+    fi
+
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     MITO_READS="{\\\"mitochondrial_reads\\\": ${alignMap['has_whitelist_with_mt']}}"
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
+    -x "Lane ${alignMap['lane']}" \
     -p \${PROCESS_BLOCK} \
     -v 'bowtie2 --version | head -1' 'samtools --version | head -2' 'bedtools --version' 'awk --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' \
+    -j "{\\\"genome_index\\\": \\\"${alignMap['genome_index']}\\\", \\\"whitelist_file_path\\\": \\\"\${WHITELIST_FILE_PATH}\\\", \\\"seed\\\": \\\"${alignMap['seed']}\\\"}"  \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -f \${bowtieStderr} \
     -j "\${MITO_READS}" \
-    -d ${log_dir}
+    -d ${log_dir} \
+    \${LOG_FILES_PARAMETER}
 	"""
 }
 
@@ -1168,7 +1242,7 @@ process mergePeaksByGroupProcess {
 	script:
 	"""
     PROCESS_BLOCK='mergePeaksByGroupProcess'
-    SAMPLE_NAME="peaks.${mergePeaksMap['group']}"
+    SAMPLE_NAME="peaks"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
 	outGroupBed="${mergePeaksMap['group']}-group_merged_peaks_set.bed"
@@ -1195,6 +1269,7 @@ process mergePeaksByGroupProcess {
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
+    -x "Group ${mergePeaksMap['group']}" \
     -p \${PROCESS_BLOCK} \
     -v 'zcat --version | head -1' 'cut --version | head -1' 'bedtools --version' 'sort --version | head -1' \
     -s \${START_TIME} \
@@ -1317,6 +1392,7 @@ process makeWindowedGenomeIntervalsProcess {
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
     -v 'bedtools --version' \
+    -j "{\\\"window_size\\\": \\\"${task.ext.window_size}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1401,6 +1477,7 @@ process makePromoterSumIntervalsProcess {
         -n \${SAMPLE_NAME} \
         -p \${PROCESS_BLOCK} \
         -v 'bedtools --version' 'awk --version | head -1' 'cut --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' 'gzip --version | head -1' \
+        -j "{\\\"proximal_upstream\\\": \\\"${task.ext.proximal_upstream}\\\", \\\"proximal_downstream\\\": \\\"${task.ext.proximal_downstream}\\\", \\\"peak_to_tss_distance_threshold\\\": \\\"${task.ext.peak_to_tss_distance_threshold}\\\"}" \
         -s \${START_TIME} \
         -e \${STOP_TIME} \
         -d ${log_dir}
@@ -1477,6 +1554,7 @@ process makeMergedPeakRegionCountsProcess {
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
     -v 'bedtools --version' 'gzip --version | head -1' 'python3 --version' \
+    -j "{\\\"flanking_distance\\\": \\\"${task.ext.flanking_distance}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1548,6 +1626,7 @@ process makeTssRegionCountsProcess {
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
     -v 'bedtools --version' 'gzip --version | head -1' 'python3 --version' \
+    -j "{\\\"flanking_distance\\\": \\\"${task.ext.flanking_distance}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -1756,6 +1835,7 @@ process getPerBaseCoverageTssProcess {
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
     -v 'bedtools --version' 'awk --version | head -1' 'gzip --version | head -1' 'R --version | head -1' \
+    -j "{\\\"flanking_distance\\\": \\\"${task.ext.flanking_distance}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2380,8 +2460,10 @@ process callMotifsProcess {
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
+    -x "GC_bin ${inMergedPeaksMap['gc_bin']}" \
     -p \${PROCESS_BLOCK} \
     -v 'awk --version | head -1' 'python3 --version' \
+    -j "{\\\"pwm_threshold\\\": \\\"${task.ext.pwm_threshold}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
@@ -2644,6 +2726,7 @@ process makeReducedDimensionMatrixProcess {
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
     -v 'python3 --version' 'R --version | head -1' \
+    -j "{\\\"umi_cutoff\\\": \\\"${task.ext.umi_cutoff}\\\", \\\"frip_cutoff\\\": \\\"${task.ext.frip_cutoff}\\\", \\\"frit_cutoff\\\": \\\"${task.ext.frit_cutoff}\\\", \\\"num_lsi_dimensions\\\": \\\"${task.ext.num_lsi_dimensions}\\\", \\\"cluster_resolution\\\": \\\"${task.ext.cluster_resolution}\\\", \\\"doublet_predict_top_ntile\\\": \\\"${task.ext.doublet_predict_top_ntile}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -f \${outReduceDimensionsLogFile} \${outBlackListRegionsFile} \
@@ -2677,7 +2760,7 @@ process experimentDashboardProcess {
 	script:
 	"""
     PROCESS_BLOCK='experimentDashboardProcess'
-    SAMPLE_NAME="all"
+    SAMPLE_NAME="dashboard"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
 	mkdir -p ${output_dir}/analyze_dash/js
@@ -2737,7 +2820,7 @@ process makeMergedPlotFilesProcess {
     script:
     """
     PROCESS_BLOCK='makeMergedPlotFilesProcess'
-    SAMPLE_NAME="na"
+    SAMPLE_NAME="plots"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
     mkdir -p ${output_dir}/analyze_out/merged_plots
@@ -2786,6 +2869,71 @@ process template {
 	"""
 }
 */
+
+
+/*
+** ================================================================================
+** Run log distiller when the pipeline finishes.
+** ================================================================================
+*/
+addShutdownHook {
+
+    /*
+    ** Add sample sheet information.
+    */
+    def samples = []
+
+    sampleSortedNames.each { aSample ->
+        samples.add( aSample )
+    }
+
+    def proc
+    def command = new StringBuffer()
+    def strOut = new StringBuffer()
+    def strErr = new StringBuffer()
+
+    command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -o ${log_dir}/log.all_samples.txt")
+    proc = command.toString().execute()
+    proc.consumeProcessOutput(strOut, strErr)
+    proc.waitForProcessOutput()
+    if( proc.exitValue() != 0 ) {
+        System.err << strErr.toString()
+        System.exit( -1 )
+    }
+
+
+    command.setLength(0)
+    command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s genome pipeline -o ${log_dir}/log.genome.txt")
+    proc = command.toString().execute()
+    proc.consumeProcessOutput(strOut, strErr)
+    proc.waitForProcessOutput()
+    if( proc.exitValue() != 0 ) {
+        System.err << strErr.toString()
+        System.exit( -1 )
+    }
+
+    command.setLength(0)
+    command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s peaks pipeline -o ${log_dir}/log.peaks.txt")
+    proc = command.toString().execute()
+    proc.consumeProcessOutput(strOut, strErr)
+    proc.waitForProcessOutput()
+    if( proc.exitValue() != 0 ) {
+        System.err << strErr.toString()
+        System.exit( -1 )
+    }
+
+    samples.each { aSample ->
+        command.setLength(0)
+        command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s ${aSample} pipeline -o ${log_dir}/log.${aSample}.txt")
+        proc = command.toString().execute()
+        proc.consumeProcessOutput(strOut, strErr)
+        proc.waitForProcessOutput()
+        if( proc.exitValue() != 0 ) {
+            System.err << strErr.toString()
+            System.exit( -1 )
+        }
+    }
+}
 
 
 
@@ -3394,14 +3542,29 @@ def sortTssBedChannelSetup( sampleSortedNames, sampleGenomeMap, genomesJson ) {
 	def outBed
 	def tssBedMaps = []
 	sampleSortedNames.each { aSample ->
-	   def aGenomeJsonMap = sampleGenomeMap[aSample]
-	   def hasTss = aGenomeJsonMap.containsKey( 'tss' )
-        if( hasTss ) {
-            inBed = aGenomeJsonMap['tss']
-        } else {
-            inBed = ''
-        }
-        tssBedMaps.add( [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'hasTss': hasTss, 'inBed': inBed ] )	   
+	  def aGenomeJsonMap = sampleGenomeMap[aSample]
+
+	  def hasTss = aGenomeJsonMap.containsKey( 'tss' )
+      if( hasTss ) {
+          inBed = aGenomeJsonMap['tss']
+      } else {
+          inBed = ''
+      }
+
+      def hasGenomeLog = aGenomeJsonMap.containsKey( 'genomeLog' )
+      if( hasGenomeLog ) {
+          inGenomeLog = aGenomeJsonMap['genomeLog']
+      } else {
+          inGenomeLog = ''
+      }
+
+      def hasAtacDataLog = aGenomeJsonMap.containsKey( 'atacDataLog' )
+      if( hasAtacDataLog ) {
+          inAtacDataLog = aGenomeJsonMap['atacDataLog']
+      } else {
+          inAtacDataLog = ''
+      }
+      tssBedMaps.add( [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'hasTss': hasTss, 'inBed': inBed, 'hasGenomelog': hasGenomeLog, 'inGenomeLog': inGenomeLog, 'hasAtacDataLog': hasAtacDataLog, 'inAtacDataLog': inAtacDataLog ] )  
 	}
 	
 	return( tssBedMaps )
@@ -3423,7 +3586,14 @@ def sortChromosomeSizeChannelSetup( sampleSortedNames, sampleGenomeMap, genomesJ
         } else {
             inTxt = ''
         }
-        chromosomeSizeMaps.add( [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'hasChromosomeSizes': hasChromosomeSizes, 'inTxt': inTxt ] )
+
+        def hasGenomeLog = aGenomeJsonMap.containsKey( 'genomeLog' )
+        if( hasGenomeLog ) {
+            inGenomeLog = aGenomeJsonMap['genomeLog']
+        } else {
+            inGenomeLog = ''
+        }
+        chromosomeSizeMaps.add( [ 'sample': aSample, 'genome': aGenomeJsonMap['name'], 'hasGenomeLog': hasGenomeLog, 'inGenomeLog': inGenomeLog, 'hasChromosomeSizes': hasChromosomeSizes, 'inTxt': inTxt ] )
     }
 
 	return( chromosomeSizeMaps )
@@ -3536,6 +3706,20 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
               has_whitelist_with_mt = 'true'
             }
 
+            def hasGenomeLog = genomesJson[genome].containsKey( 'genomeLog' )
+            if( hasGenomeLog ) {
+                inGenomeLog = genomesJson[genome]['genomeLog']
+            } else {
+                inGenomeLog = ''
+            }
+
+            def hasAtacDataLog = genomesJson[genome].containsKey( 'atacDataLog' )
+            if( hasAtacDataLog ) {
+                inAtacDataLog = genomesJson[genome]['atacDataLog']
+            } else {
+                inAtacDataLog = ''
+            }
+
 			alignMaps.add( [ 'sample': aSample,
                              'lane': aLane,
                              'fastq1': fastq1,
@@ -3545,7 +3729,11 @@ def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
                              'whitelist_with_mt': whitelist_with_mt,
                              'has_whitelist_with_mt' : has_whitelist_with_mt,
                              'aligner_memory': aligner_memory,
-                             'seed': seed ] )
+                             'seed': seed,
+                             'hasGenomeLog': hasGenomeLog,
+                             'inGenomeLog': inGenomeLog,
+                             'hasAtacDataLog': hasAtacDataLog,
+                             'inAtacDataLog': inAtacDataLog] )
 		}
 	}
 	

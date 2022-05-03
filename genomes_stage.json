@@ -13,11 +13,13 @@
     },
     "human": {
         "name": "human",
+        "genomeLog": "/net/bbi/vol1/data/genomes_stage/human/human_gsrc/record.out",
         "chromosome_sizes": "/net/bbi/vol1/data/genomes_stage/human/human_atac/chromosome_sizes_atac.txt",
         "whitelist_regions": "/net/bbi/vol1/data/genomes_stage/human/human_atac/whitelist_regions.bed",
         "whitelist_with_mt_regions": "/net/bbi/vol1/data/genomes_stage/human/human_atac/whitelist_with_mt_regions.bed",
         "blacklist_regions": "/net/bbi/vol1/data/genomes_stage/human/human_encode/ENCFF356LFX.bed.sorted",
         "tss": "/net/bbi/vol1/data/genomes_stage/human/human_atac/tss.bed.gz",
+        "atacAdatLog": "/net/bbi/vol1/data/genomes_stage/human/human_atac/record.out",
         "gene_score_bed": "/net/bbi/vol1/data/genomes_stage/human/human_atac/gene_bodies.plus_2kb_upstream.bed.gz",
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes_stage/human/human_atac/gene_bodies_gene_map.txt",
         "motifs": "/net/trapnell/vol1/ajh24/common_data/sciatac_pipeline_data/common_files/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
