@@ -2876,7 +2876,7 @@ process template {
 ** Run log distiller when the pipeline finishes.
 ** ================================================================================
 */
-addShutdownHook {
+addShutdownHook({
 
     /*
     ** Add sample sheet information.
@@ -2888,52 +2888,34 @@ addShutdownHook {
     }
 
     def proc
-    def command = new StringBuffer()
-    def strOut = new StringBuffer()
-    def strErr = new StringBuffer()
+    def command = new StringBuilder()
 
     command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -o ${log_dir}/log.all_samples.txt")
     proc = command.toString().execute()
-    proc.consumeProcessOutput(strOut, strErr)
-    proc.waitForProcessOutput()
-    if( proc.exitValue() != 0 ) {
-        System.err << strErr.toString()
-        System.exit( -1 )
-    }
-
+    command.setLength(0)
+    proc = null
 
     command.setLength(0)
     command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s genome pipeline -o ${log_dir}/log.genome.txt")
     proc = command.toString().execute()
-    proc.consumeProcessOutput(strOut, strErr)
-    proc.waitForProcessOutput()
-    if( proc.exitValue() != 0 ) {
-        System.err << strErr.toString()
-        System.exit( -1 )
-    }
+    command.setLength(0)
+    proc = null
 
     command.setLength(0)
     command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s peaks pipeline -o ${log_dir}/log.peaks.txt")
     proc = command.toString().execute()
-    proc.consumeProcessOutput(strOut, strErr)
-    proc.waitForProcessOutput()
-    if( proc.exitValue() != 0 ) {
-        System.err << strErr.toString()
-        System.exit( -1 )
-    }
+    command.setLength(0)
+    proc = null
 
     samples.each { aSample ->
         command.setLength(0)
         command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s ${aSample} pipeline -o ${log_dir}/log.${aSample}.txt")
         proc = command.toString().execute()
-        proc.consumeProcessOutput(strOut, strErr)
-        proc.waitForProcessOutput()
-        if( proc.exitValue() != 0 ) {
-            System.err << strErr.toString()
-            System.exit( -1 )
-        }
+        command.setLength(0)
+        proc = null
     }
-}
+    samples = null
+})
 
 
 
