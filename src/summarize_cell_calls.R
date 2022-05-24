@@ -166,15 +166,15 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
     humanfrac = humancounts/(humancounts + mousecounts)
     mousefrac = mousecounts/(humancounts + mousecounts)
     collisioninflation = ((humanfrac^2) + (mousefrac^2))/(2*humanfrac*mousefrac)
-    bloom_collision_rate = signif(bloom_collision(totalcounts-mousecounts,totalcounts-humancounts,totalcounts-(humancounts+mousecounts)),4)
+    bloom_collision_rate = round(bloom_collision(totalcounts-mousecounts,totalcounts-humancounts,totalcounts-(humancounts+mousecounts)), digits=4)
   }
 
   # Read distributions
   currcellfloor = sample_stats$cell_threshold
   currsubcells = sample_counts$total_deduplicated >= currcellfloor
   
-  fraction_hs = round(sum(sample_counts[currsubcells, 'total_deduplicated_peaks'])/sum(sample_counts[currsubcells,"total_deduplicated"]),3)
-  fraction_tss = round(sum(sample_counts[currsubcells, 'total_deduplicated_tss'])/sum(sample_counts[currsubcells,"total_deduplicated"]),3)
+  fraction_hs = round(sum(sample_counts[currsubcells, 'total_deduplicated_peaks'])/sum(sample_counts[currsubcells,"total_deduplicated"]), digits=3)
+  fraction_tss = round(sum(sample_counts[currsubcells, 'total_deduplicated_tss'])/sum(sample_counts[currsubcells,"total_deduplicated"]), digits=3)
   total_reads = sum(sample_counts$total)
   total_deduplicated_reads <- sum(sample_counts$total_deduplicated)
   fraction_reads_in_cells = sum(sample_counts[currsubcells, 'total']) / total_reads
@@ -219,10 +219,10 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
 
 
   legend("bottomleft",c(paste0("Total Reads: ", total_reads),
-                    paste0("\n Fraction Reads in Cells: ", round(fraction_reads_in_cells, 4)),
+                    paste0("\n Fraction Reads in Cells: ", round(fraction_reads_in_cells, digits=4)),
                     paste0("\n Total Barcodes: ",total_barcodes),
                     paste0("\n Number of Cells: ", number_of_cells),
-                    paste0("\n Fraction HS (cells only): ", round(fraction_hs, 4)),
+                    paste0("\n Fraction HS (cells only): ", round(fraction_hs, digits=4)),
                     paste0("\n Median Reads/Cell: ", median_reads_per_cell),
                     paste0("\n Range of Reads/Cell: ", min_reads_per_cell," - ", max_reads_per_cell)),bty="n", cex=0.75, pt.cex = 1, text.font=2)
   grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
@@ -233,10 +233,10 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
        ylab="Number of Reads", xlab='Barcode Rank', pch=16, log='xy', cex=1, ylim = c(ymin, ymax), xlim=c(xmin, xmax))
   points(x=noise_df$x, y=noise_df$y, col='#d3d3d3', log='xy', pch=16, cex=1, ylim = c(ymin, ymax), xlim=c(xmin, xmax))
   legend("bottomleft",c(paste0("Total Reads: ", total_reads),
-                    paste0("\n Fraction Reads in Cells: ", round(fraction_reads_in_cells, 4)),
+                    paste0("\n Fraction Reads in Cells: ", round(fraction_reads_in_cells, digits=4)),
                     paste0("\n Total Barcodes: ",total_barcodes),
                     paste0("\n Number of Cells: ", number_of_cells),
-                    paste0("\n Fraction HS (cells only): ", round(fraction_hs, 4)),
+                    paste0("\n Fraction HS (cells only): ", round(fraction_hs, digits=4)),
                     paste0("\n Median Reads/Cell: ", median_reads_per_cell),
                     paste0("\n Range of Reads/Cell: ", min_reads_per_cell," - ", max_reads_per_cell)),bty="n", cex=0.75, pt.cex = 1, text.font=2)
   grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")  
@@ -256,9 +256,9 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
 
   hist(log10(totalfrags), main=paste0(sample_name, " Estimated Fragments"), col="orange",lwd=2,pch=20,las=1, breaks=60)
   legend("topright",
-    c(paste0("\n Median Frac Mol Obs: ", round(median_fraction_molecules_observed, 4)),
-    paste0("\n Median Dup Rate: ", round(median_duplication_rate, 4)),
-    paste0("\n Median Total Frags Est: ", round(median_total_fragments, 4))),
+    c(paste0("\n Median Frac Mol Obs: ", round(median_fraction_molecules_observed, digits=4)),
+    paste0("\n Median Dup Rate: ", round(median_duplication_rate, digits=4)),
+    paste0("\n Median Total Frags Est: ", round(median_total_fragments, digits=4))),
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
   abline(v=log10(median_total_fragments),lwd=2,lty="dashed")
 
@@ -266,9 +266,9 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   hist(log10(totalfrags), main=paste0(sample_name, " Estimated Fragments"), col="orange",lwd=2,pch=20,las=1, breaks=60)
   legend("topright",
-    c(paste0("\n Median Frac Mol Obs: ", round(median_fraction_molecules_observed, 4)),
-    paste0("\n Median Dup Rate: ", round(median_duplication_rate, 4)),
-    paste0("\n Median Total Frags Est: ", round(median_total_fragments, 4))),
+    c(paste0("\n Median Frac Mol Obs: ", round(median_fraction_molecules_observed, digits=4)),
+    paste0("\n Median Dup Rate: ", round(median_duplication_rate, digits=4)),
+    paste0("\n Median Total Frags Est: ", round(median_total_fragments, digits=4))),
   bty="n", cex=0.75, pt.cex = 1, text.font=2)
   abline(v=log10(median_total_fragments),lwd=2,lty="dashed")
   dev.off()
@@ -282,7 +282,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
         xlab="Fraction of Reads Mapping to DHS", main=paste0(sample_name, ' Cells FRiP'), col="dodgerblue2",lwd=2,pch=20,las=1, breaks=60)
   abline(v=median_per_cell_frip,lwd=2,lty="dashed")
   legend("topright",
-    c(paste0("\n Median FRiP: ", round(median_per_cell_frip, 4)),
+    c(paste0("\n Median FRiP: ", round(median_per_cell_frip, digits=4)),
     paste0("\n Sample Peaks: ", sample_peak_counts),
     paste0("\n Total Merged Peaks: ", total_merged_peaks),
     paste0("\n Peak group: ", peak_group),
@@ -295,7 +295,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
         xlab="Fraction of Reads Mapping to DHS", main=paste0(sample_name, ' Cells FRiP'), col="dodgerblue2",lwd=2,pch=20,las=1, breaks=60)
   abline(v=median_per_cell_frip,lwd=2,lty="dashed")
   legend("topright",
-    c(paste0("\n Median FRiP: ", round(median_per_cell_frip, 4)),
+    c(paste0("\n Median FRiP: ", round(median_per_cell_frip, digits=4)),
     paste0("\n Sample Peaks: ", sample_peak_counts),
     paste0("\n Total Merged Peaks: ", total_merged_peaks),
     paste0("\n Peak group: ", peak_group),
@@ -311,7 +311,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
         xlab="Fraction of Reads Mapping to TSS Regions", main=paste0(sample_name, ' Cells FRiT'), col="red",lwd=2,pch=20,las=1, breaks=60)
   abline(v=median_per_cell_frit,lwd=2,lty="dashed")
   legend("topright",
-    c(paste0("\n Median FRiT: ", round(median_per_cell_frit, 4))),
+    c(paste0("\n Median FRiT: ", round(median_per_cell_frit, digits=4))),
     bty="n", cex=0.75, pt.cex = 1, text.font=2)
 
   file_name <- paste0(sample_name, '-frit.png')
@@ -320,7 +320,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
         xlab="Fraction of Reads Mapping to TSS Regions", main=paste0(sample_name, ' Cells FRiT'), col="red",lwd=2,pch=20,las=1, breaks=60)
   abline(v=median_per_cell_frit,lwd=2,lty="dashed")
   legend("topright",
-    c(paste0("\n Median FRiT: ", round(median_per_cell_frit, 4))),
+    c(paste0("\n Median FRiT: ", round(median_per_cell_frit, digits=4))),
     bty="n", cex=0.75, pt.cex = 1, text.font=2)
   dev.off()
 
@@ -355,8 +355,8 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
     legend("topright",c(paste0("Total Cells: ",totalcounts),
                         paste0("Human Cells: ",humancounts),
                         paste0("Mouse Cells: ",mousecounts),
-                        paste0("Observed Collision Rate: ",signif(1-(humancounts + mousecounts)/totalcounts,4)),
-                        paste0("Calculated Collision Rate: ",signif(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts),4)),
+                        paste0("Observed Collision Rate: ",round(1-(humancounts + mousecounts)/totalcounts, digits=4)),
+                        paste0("Calculated Collision Rate: ",round(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts), digits=4)),
                         paste0("Bloom Collision Rate: ",bloom_collision_rate)))
 
     file_name <- paste0(sample_name, '.png')
@@ -368,16 +368,16 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
     legend("topright",c(paste0("Total Cells: ",totalcounts),
                         paste0("Human Cells: ",humancounts),
                         paste0("Mouse Cells: ",mousecounts),
-                        paste0("Observed Collision Rate: ",signif(1-(humancounts + mousecounts)/totalcounts,4)),
-                        paste0("Calculated Collision Rate: ",signif(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts),4)),
-                        paste0("Bloom Collision Rate: ",bloom_collision_rate)))
+                        paste0("Observed Collision Rate: ",round(1-(humancounts + mousecounts)/totalcounts, digits=4)),
+                        paste0("Calculated Collision Rate: ",round(2*collisioninflation*(1-(humancounts + mousecounts)/totalcounts), digits=4)),
+                        paste0("Bloom Collision Rate: ", round(bloom_collision_rate, digits=4))))
     dev.off()
   } else {
   	# plot: tss_enrichment
     plot(sample_tss_coverage$position, sample_tss_coverage$enrichment, type='l', col='black', xlab='Position relative to TSS (bp)', ylab='Fold Enrichment', main=paste0(sample_name, ' TSS enrichment'))
     grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
     legend("topright",
-        c(paste0("\n TSS enrichment: ", round(tss_enrichment, 4))),
+        c(paste0("\n TSS enrichment: ", round(tss_enrichment, digits=4))),
     bty="n", cex=0.75, pt.cex = 1, text.font=2)
 
     file_name <- paste0(sample_name, '-tss_enrichment.png')
@@ -385,7 +385,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
     plot(sample_tss_coverage$position, sample_tss_coverage$enrichment, type='l', col='black', xlab='Position relative to TSS (bp)', ylab='Fold Enrichment', main=paste0(sample_name, ' TSS enrichment'))
     grid(nx = 10, ny = 5, col = "lightgray", lty = "dotted")
     legend("topright",
-        c(paste0("\n TSS enrichment: ", round(tss_enrichment, 4))),
+        c(paste0("\n TSS enrichment: ", round(tss_enrichment, digits=4))),
     bty="n", cex=0.75, pt.cex = 1, text.font=2)
     dev.off()
   }
@@ -414,7 +414,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
                                   subsetmitomat.sample[['total_mito_deduplicated']])
   hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
   if(sum(subsetmitomat.sample[['total_mito_deduplicated']]) > 0) {
-    legend("topright",paste0("Fraction Total Mitochondrial Reads: ",signif(total_fraction_mitochondrial_reads,4)), bty="n", cex=0.75, pt.cex = 1, text.font=2)
+    legend("topright",paste0("Fraction Total Mitochondrial Reads: ",round(total_fraction_mitochondrial_reads, digits=4)), bty="n", cex=0.75, pt.cex = 1, text.font=2)
   }
   else {
     plot_lims <- par('usr')
@@ -424,7 +424,7 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   png(file = file_name, width = 6, height = 4, res = 200, units = 'in')
   hist(fraction_mitochondrial_reads, main=paste0(sample_name," Fraction of Mitochondrial Reads"), col="darkorchid1", lwd=2,pch=20,las=1, breaks=60)
   if(sum(subsetmitomat.sample$total_mito_deduplicated) > 0) {
-    legend("topright",paste0("Fraction Total Mitochondrial Reads: ",signif(total_fraction_mitochondrial_reads,4)), bty="n", cex=0.75, pt.cex = 1, text.font=2)
+    legend("topright",paste0("Fraction Total Mitochondrial Reads: ",round(total_fraction_mitochondrial_reads, digits=4)), bty="n", cex=0.75, pt.cex = 1, text.font=2)
   }
   else {
     plot_lims <- par('usr')
@@ -437,48 +437,48 @@ output_stats = lapply(1:length(args$stats_files), function(i) {
   if (args$barnyard) {
     stats_df <- data.frame('sample'=sample_name,
                            'cell_threshold'=currcellfloor,
-                           'fraction_hs'=signif(fraction_hs, nsignif),
-                           'fraction_tss'=signif(fraction_tss, nsignif),
-                           'median_per_cell_frip'=signif(median_per_cell_frip, nsignif),
-                           'median_per_cell_frit'=signif(median_per_cell_frit, nsignif),
-                           'tss_enrichment'=signif(tss_enrichment, nsignif),
+                           'fraction_hs'=round(fraction_hs, digits=nsignif),
+                           'fraction_tss'=round(fraction_tss, digits=nsignif),
+                           'median_per_cell_frip'=round(median_per_cell_frip, digits=nsignif),
+                           'median_per_cell_frit'=round(median_per_cell_frit, digits=nsignif),
+                           'tss_enrichment'=round(tss_enrichment, digits=nsignif),
                            'sample_peaks_called'=sample_peak_counts,
                            'total_merged_peaks'=total_merged_peaks,
                            'total_reads'=total_reads,
-                           'fraction_reads_in_cells'=signif(fraction_reads_in_cells, nsignif),
+                           'fraction_reads_in_cells'=round(fraction_reads_in_cells, digits=nsignif),
                            'total_barcodes'=total_barcodes,
                            'number_of_cells'=number_of_cells,
-                           'median_reads_per_cell'=signif(median_reads_per_cell, nsignif),
+                           'median_reads_per_cell'=round(median_reads_per_cell, digits=nsignif),
                            'min_reads_per_cell'=min_reads_per_cell,
                            'max_reads_per_cell'=max_reads_per_cell,
-                           'median_duplication_rate'=signif(median_duplication_rate, nsignif),
-                           'median_fraction_molecules_observed'=signif(median_fraction_molecules_observed, nsignif),
-                           'median_total_fragments'=signif(median_total_fragments, nsignif),
+                           'median_duplication_rate'=round(median_duplication_rate, digits=nsignif),
+                           'median_fraction_molecules_observed'=round(median_fraction_molecules_observed, digits=nsignif),
+                           'median_total_fragments'=round(median_total_fragments, digits=nsignif),
                            'total_deduplicated_reads'=total_deduplicated_reads,
-                           'fraction_mitochondrial_reads'=signif(total_fraction_mitochondrial_reads, nsignif),
-                           'bloom_collision_rate'=signif(bloom_collision_rate, nsignif))
+                           'fraction_mitochondrial_reads'=round(total_fraction_mitochondrial_reads, digits=nsignif),
+                           'bloom_collision_rate'=round(bloom_collision_rate, digits=nsignif))
   } else {
     stats_df <- data.frame('sample'=sample_name,
                            'cell_threshold'=currcellfloor,
-                           'fraction_hs'=signif(fraction_hs, nsignif),
-                           'fraction_tss'=signif(fraction_tss, nsignif),
-                           'median_per_cell_frip'=signif(median_per_cell_frip, nsignif),
-                           'median_per_cell_frit'=signif(median_per_cell_frit, nsignif),
-                           'tss_enrichment'=signif(tss_enrichment, nsignif),
+                           'fraction_hs'=round(fraction_hs, digits=nsignif),
+                           'fraction_tss'=round(fraction_tss, digits=nsignif),
+                           'median_per_cell_frip'=round(median_per_cell_frip, digits=nsignif),
+                           'median_per_cell_frit'=round(median_per_cell_frit, digits=nsignif),
+                           'tss_enrichment'=round(tss_enrichment, digits=nsignif),
                            'sample_peaks_called'=sample_peak_counts,
                            'total_merged_peaks'=total_merged_peaks,
                            'total_reads'=total_reads,
-                           'fraction_reads_in_cells'=signif(fraction_reads_in_cells, nsignif),
+                           'fraction_reads_in_cells'=round(fraction_reads_in_cells, digits=nsignif),
                            'total_barcodes'=total_barcodes,
                            'number_of_cells'=number_of_cells,
-                           'median_reads_per_cell'=signif(median_reads_per_cell, nsignif),
+                           'median_reads_per_cell'=round(median_reads_per_cell, digits=nsignif),
                            'min_reads_per_cell'=min_reads_per_cell,
                            'max_reads_per_cell'=max_reads_per_cell,
-                           'median_duplication_rate'=signif(median_duplication_rate, nsignif),
-                           'median_fraction_molecules_observed'=signif(median_fraction_molecules_observed, nsignif),
-                           'median_total_fragments'=signif(median_total_fragments, nsignif),
+                           'median_duplication_rate'=round(median_duplication_rate, digits=nsignif),
+                           'median_fraction_molecules_observed'=round(median_fraction_molecules_observed, digits=nsignif),
+                           'median_total_fragments'=round(median_total_fragments, digits=nsignif),
                            'total_deduplicated_reads'=total_deduplicated_reads,
-                           'fraction_mitochondrial_reads'=signif(total_fraction_mitochondrial_reads, nsignif))
+                           'fraction_mitochondrial_reads'=round(total_fraction_mitochondrial_reads, digits=nsignif))
   }
   # Return any key stats for output file
   return(stats_df)
