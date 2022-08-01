@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 from __future__ import print_function
 from __future__ import division
 from scipy import stats
@@ -273,6 +275,20 @@ def choose_shift(count_data, min_shift=2, max_shift=12):
     return best_shift
 
 if __name__ == '__main__':
+    """
+    The barcode count distribution is likely bimodal so modeled as two negative binomial
+    distributions -- one is (mostly) cells and the other is background. This script finds
+    good parameters for the two distributions. Then it finds a location between the two
+    distributions: "where the minimum count that both yields an odds ratio (in favor of
+    signal) of 20 or higher and removes at least 0.5% of the signal distribution as
+    estimated from the signal distribution's CDF (we found that this second criterion
+    prevents fits with thresholds that appeared to be too permissive otherwise)."
+    This description is from
+      A human cell atlas of fetal chromatin accessibility
+      Domcke et al.
+      Science 370 (2020)
+      DOI: 10.1126/science.aba7612
+    """
     parser = argparse.ArgumentParser('Script to call cells given the barcode count distribution.')
     parser.add_argument('--count_report', required=True, help='Count report as output by earlier steps in pipline.')
     parser.add_argument('called_cells_counts', help='Output of counts for all called cells.')

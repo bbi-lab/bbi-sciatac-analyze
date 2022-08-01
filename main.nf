@@ -459,6 +459,9 @@ process log_pipeline_versions {
 
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='log_pipeline_versions'
     SAMPLE_NAME="pipeline"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -504,6 +507,9 @@ process sortTssBedProcess {
 	
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='sortTssBedProcess'
     SAMPLE_NAME="genome"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -560,6 +566,9 @@ process sortChromosomeSizeProcess {
 	
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='sortChromosomeSizeProcess'
     SAMPLE_NAME="genome"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -623,6 +632,9 @@ process sortPeakFileProcess {
 
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='sortPeakFileProcess'
     SAMPLE_NAME="peaks"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -695,6 +707,9 @@ process runAlignProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='runAlignProcess'
     SAMPLE_NAME="${alignMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -705,6 +720,15 @@ process runAlignProcess {
 	outBam="${alignMap['sample']}-${alignMap['lane']}.bam"
     outMito="${alignMap['sample']}-${alignMap['lane']}.mito"
 
+    # bowtie2 command line parameters
+    #   -3 <int> Trim <int> bases from 3' (right) end of each read before alignment (default: 0).
+    #   -X <int> The maximum fragment length for valid paired-end alignments.
+    #
+    # samtools command line parameters
+    #   -f <int>  --require-flags FLAG   ...have all of the FLAGs present
+    #   -F <int>  --excl[ude]-flags FLAG ...have none of the FLAGs present
+    #   -q <int>   --min-MQ INT           ...have mapping quality >= INT
+    #
     if [ "${alignMap['has_whitelist_with_mt']}" == "true" ]
     then
       WHITELIST_FILE_PATH="${alignMap['whitelist_with_mt']}"
@@ -782,6 +806,9 @@ process mergeBamsProcess {
 	
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='mergeBamsProcess'
     SAMPLE_NAME="${inMergeBamMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -838,6 +865,9 @@ process mergeMitoBamsProcess {
    
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='mergeMitoBamsProcess'
     SAMPLE_NAME="${inMergeMitoBamMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -912,6 +942,9 @@ process getUniqueFragmentsProcess {
 		
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='getUniqueFragmentsProcess'
     SAMPLE_NAME="${inUniqueFragmentsMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -923,7 +956,20 @@ process getUniqueFragmentsProcess {
 	outTranspositionSites="${inUniqueFragmentsMap['sample']}-transposition_sites.bed"
 	outInsertSizes="${inUniqueFragmentsMap['sample']}-insert_sizes.txt"
 	outDuplicateReport="${inUniqueFragmentsMap['sample']}-duplicate_report.txt"
-	
+
+    # get_unique_fragments.py command line parameters
+    #   --fragments  Output file replicating the 10x fragments.tsv.gz format
+    #                for visualization purposes, etc.
+    #   --transposition_sites_bed  Output file for peak calling and matrix
+    #                              generation. BED file with each region
+    #                              centered around a transposition site annotated
+    #                              with cell ID. (Default 3 bases wide centered on
+    #                              transposition site.)
+    #   --duplicate_read_counts  Output file specifying the number of reads per
+    #                            cell (not fragments) in duplicated and deduplicated
+    #                            BAM files.
+    #   --insert_sizes  Output file with insert size distribution for the sample.
+    #
 	python ${script_dir}/get_unique_fragments.py \
 		${inBam} \
 		--fragments \${outFragments} \
@@ -1011,6 +1057,9 @@ process getUniqueFragmentsMitoProcess {
 		
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='getUniqueFragmentsMitoProcess'
     SAMPLE_NAME="${inUniqueFragmentsMitoMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1091,6 +1140,9 @@ process combineReadCountsProcess {
 
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='combineReadCountsProcess'
     SAMPLE_NAME="${inDuplicateReportMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1146,6 +1198,9 @@ process callPeaksProcess {
 	
     script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='callPeaksProcess'
     SAMPLE_NAME="${inCallPeaksMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1162,6 +1217,23 @@ process callPeaksProcess {
 	
     # We used to add --shift -100 and --extsize, but the regions are now pre-shifted and extended
     # as output by other stages (ajh).
+    #   --nomodel: While on, MACS will bypass building the shifting model.
+    #   --shift:  When --nomodel is set, MACS will use this value to move cutting ends (5')
+    #             then apply --extsize from 5' to 3' direction to extend them to fragments
+    #   --extsize: While --nomodel is set, MACS uses this parameter to extend reads in 5'->3'
+    #              direction to fix-sized fragments
+    #   --keep-dup: controls the MACS behavior towards duplicate tags at the exact same
+    #               location -- the same coordination and the same strand. The default
+    #               auto option makes MACS calculate the maximum tags at the exact same
+    #               location based on binomial distribution using 1e-5 as p-value cutoff;
+    #               and the all option keeps every tag.
+    #   --call-summits: MACS will now reanalyze the shape of signal profile (p or q-score
+    #                   depending on the cutoff setting) to deconvolve subpeaks within each
+    #                   peak called from the general procedure. It's highly recommended to
+    #                   detect adjacent binding events. While used, the output subpeaks of
+    #                   a big peak region will have the same peak boundaries, and different
+    #                   scores and peak summit positions.
+    #   -n <sample_name>
 	macs2 callpeak -t ${inBed} \
 		-f BED \
 		-g ${inCallPeaksMap['macs_genome']} \
@@ -1241,6 +1313,9 @@ process mergePeaksByGroupProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='mergePeaksByGroupProcess'
     SAMPLE_NAME="peaks"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1311,6 +1386,9 @@ process mergePeaksByFileProcess {
 
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='mergePeaksByFileProcess'
     SAMPLE_NAME="${mergePeaksMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1375,12 +1453,21 @@ process makeWindowedGenomeIntervalsProcess {
         
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeWindowedGenomeIntervalsProcess'
     SAMPLE_NAME="${inGenomeSizesMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
 	outBed="${inGenomeSizesMap['sample']}-genomic_windows.bed"
-	
+
+    #
+    # bedtools command line parameters
+    #   makewindows: make a bed file with non-overlapping window
+    #                boundaries with length task.ext.window_size.
+    #     -w window size in bases (non-overlapping when -s is not
+    #        used)
     bedtools makewindows \
         -g ${inGenomeSizes} \
         -w ${task.ext.window_size} \
@@ -1427,12 +1514,19 @@ process makePromoterSumIntervalsProcess {
     script:
     if( inMap['hasGeneScoreBed'] == 1 )
     	"""
+        # bash watch for errors
+        set -ueo pipefail
+
         PROCESS_BLOCK='makePromoterSumIntervalsProcess'
         SAMPLE_NAME="${inMap['sample']}"
         START_TIME=`date '+%Y%m%d:%H%M%S'`
 
     	outBed="${inMap['sample']}-gene_regions.bed.gz"
-        
+
+        # Input BED file
+        #   inMap['inBedFile'] is the sorted gene score bed file identified in
+        #   the genomes.json file.
+        #
         zcat ${inMap['inBedFile']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}
         echo "Gene score bed file was used to define gene regions" > ${inMap['sample']}-gene_regions_note.txt
 
@@ -1449,6 +1543,9 @@ process makePromoterSumIntervalsProcess {
 	else
         """
         PROCESS_BLOCK='makePromoterSumIntervalsProcess'
+        # bash watch for errors
+        set -ueo pipefail
+
         SAMPLE_NAME="${inMap['sample']}"
         START_TIME=`date '+%Y%m%d:%H%M%S'`
 
@@ -1525,6 +1622,9 @@ process makeMergedPeakRegionCountsProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeMergedPeakRegionCountsProcess'
     SAMPLE_NAME="${inMergedPeaksMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1536,10 +1636,17 @@ process makeMergedPeakRegionCountsProcess {
 	tmpRegions="${inMergedPeaksMap['sample']}-temp_regions.gz"
 	
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
+    # Extend merged peak regions by +/- task.ext.flanking_distance=0 bases and merge overlapping regions.
     bedtools slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance} \
     | bedtools merge -i stdin \
     | gzip > \${tmpRegions}
 
+    # Count transposition sites (by cell) in the merged peak regions defined above.
+    # The output file has lines like
+    #   P2-E12_P2-E12_G06-rowE06-colG05 1333
+    #   P2-E12_P2-E12_G06-rowG06-colG07 996
+    #   P2-E12_P2-E12_G06-rowH06-colG08 1165
+    #   P2-E12_P2-E12_G06-rowH06-colG09 2
     python ${script_dir}/get_region_counts.py \
         --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${tmpRegions}) \
         --output_file \${outCounts}
@@ -1596,6 +1703,9 @@ process makeTssRegionCountsProcess {
 
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeTssRegionCountsProcess'
     SAMPLE_NAME="${inTssRegionMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1607,11 +1717,18 @@ process makeTssRegionCountsProcess {
 	tmpRegions="${inTssRegionMap['sample']}-temp_regions.gz"
 	
     # TODO simplify this... maybe just have a stage that makes this file for TSS rather than complicating the stage itself
-
+    # bedtools slop extends the TSS regions by +/- task.ext.flanking_distance = 1000 bases. Overlapping regions
+    # are merged.
     bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance} \
     | bedtools merge -i stdin \
     | gzip > \${tmpRegions}
 
+    # Count transposition sites (by cell) in the extended TSSes defined above.
+    # The output file has lines like
+    #   P1-E01_P1-E01_A01-rowE01-colA05 962
+    #   P1-E01_P1-E01_A01-rowG01-colA07 262
+    #   P1-E01_P1-E01_A01-rowH01-colA08 2
+    #   P1-E01_P1-E01_A02-rowG02-colA07 937
     python ${script_dir}/get_region_counts.py \
         --transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${tmpRegions}) \
         --output_file \${outCounts}
@@ -1670,12 +1787,22 @@ process makeCountReportsProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeCountReportsProcess'
     SAMPLE_NAME="${inDuplicateReportMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
 	outCountReport="${inDuplicateReportMap['sample']}-count_report.txt"
 	
+    # The count report file rows look like
+    #   cell    total   total_deduplicated      total_deduplicated_peaks        total_deduplicated_tss
+    #   P1-G04_P1-G04_H08-rowF08-colH06 129368  83912   19741   12081
+    #   P1-G12_P1-G12_D01-rowE01-colD05 40778   29068   7293    4566
+    #   P1-G05_P1-G05_D07-rowH07-colD08 7574    6754    1693    908
+    #   P2-G09_P2-G09_B03-rowE03-colB05 29418   20946   3719    2611
+    # The counts are transferred without modification from the input files.
     Rscript ${script_dir}/make_count_report.R ${inDuplicateReport} ${inMergedPeakRegionCounts} ${inTssRegionCounts} \${outCountReport}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1731,6 +1858,9 @@ process callCellsProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='callCellsProcess'
     SAMPLE_NAME="${inCountReportMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1741,7 +1871,14 @@ process callCellsProcess {
 	outCalledCellsCounts="${inCountReportMap['sample']}-called_cells.txt"
 	outCellWhiteList="${inCountReportMap['sample']}-called_cells_whitelist.txt"
 	outCallCellsStats="${inCountReportMap['sample']}-called_cells_stats.json"
-	
+
+    # call_cells.py algorithms: see the description in the supplementary
+    # methods for the paper
+    #   A human cell atlas of fetal chromatin accessibility
+    #   Domcke et al.
+    #   Science 370 (2020)
+    #   DOI: 10.1126/science.aba7612
+    #
     python ${script_dir}/call_cells.py \${outCalledCellsCounts} \
                                        \${outCellWhiteList} \
                                        --fit_metadata \${outCallCellsStats} \
@@ -1809,6 +1946,9 @@ process getPerBaseCoverageTssProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='getPerBaseCoverageTssProcess'
     SAMPLE_NAME="${inTssRegionMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1819,12 +1959,18 @@ process getPerBaseCoverageTssProcess {
     # First get 2kb regions surrounding TSSs (not strand-specific here)
     # then calculate per-base coverage with bedtools
     # then write any non-zero entries to a file
+    #
+    # bedtools slop command line parameters
+    #   -b <int>  extend both ends of each region by <int> bases
     bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance}  \
     | bedtools coverage -sorted -d -a stdin -b ${inTranspositionSites} \
     | awk '{{ if (\$8 > 0) print \$0 }}' \
     | gzip > \${tmpOut}
 
-    # Aggregate per-position coverage over all positions across genes, taking strand into account
+    # Aggregate per-position coverage over all positions across genes,
+    # taking strand into account. This information is used in
+    # summarizeCellCallsProcess.
+    #
     Rscript ${script_dir}/aggregate_per_base_tss_region_counts.R \${tmpOut} \${outCoverage}
 
     rm \${tmpOut}
@@ -1889,6 +2035,9 @@ process makePeakMatrixProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makePeakMatrixProcess'
     SAMPLE_NAME="${inMergedPeaksMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1959,6 +2108,9 @@ process makeWindowMatrixProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeWindowMatrixProcess'
     SAMPLE_NAME="${inWindowedIntervalsMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2029,6 +2181,9 @@ process makePromoterMatrixProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makePromoterMatrixProcess'
     SAMPLE_NAME="${inGeneRegionsMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2156,6 +2311,9 @@ process summarizeCellCallsProcess {
     
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='summarizeCellCallsProcess'
     SAMPLE_NAME="${inCountReportsMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2268,6 +2426,9 @@ process makeGenomeBrowserFilesProcess {
 
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeGenomeBrowserFilesProcess'
     SAMPLE_NAME="${inTssRegionsMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2351,6 +2512,9 @@ process getBandingScoresProcess {
 
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='getBandingScoresProcess'
     SAMPLE_NAME="${inFragmentsMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2442,6 +2606,9 @@ process callMotifsProcess {
 		
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='callMotifsProcess'
     SAMPLE_NAME="${inMergedPeaksMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2516,6 +2683,9 @@ process makeMotifMatrixProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeMotifMatrixProcess'
     SAMPLE_NAME="${inPeakCallsMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2625,6 +2795,9 @@ process makeReducedDimensionMatrixProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeReducedDimensionMatrixProcess'
     SAMPLE_NAME="${inPeakMatrixMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2759,6 +2932,9 @@ process experimentDashboardProcess {
 
 	script:
 	"""
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='experimentDashboardProcess'
     SAMPLE_NAME="dashboard"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -2819,6 +2995,9 @@ process makeMergedPlotFilesProcess {
 
     script:
     """
+    # bash watch for errors
+    set -ueo pipefail
+
     PROCESS_BLOCK='makeMergedPlotFilesProcess'
     SAMPLE_NAME="plots"
     START_TIME=`date '+%Y%m%d:%H%M%S'`

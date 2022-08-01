@@ -38,7 +38,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     re1 = re.compile(r'@')
-    re2 = re.compile(r'[!-?A-~]{1,254}\t[0-9]+\t(MT|Mt|HUMAN_MT|MOUSE_MT|MtDNA|mitochondrion_genome)')
+    re2 = re.compile(r'[!-?A-~]{1,254}\t[0-9]+\t(MT|Mt|HUMAN_MT|MOUSE_MT|MtDNA|chrM|HUMAN_chrM|MOUSE_chrM|mitochondrion_genome)')
 
     ofp = open(args.output_file, 'wt')
 
