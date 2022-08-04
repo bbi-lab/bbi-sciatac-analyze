@@ -34,7 +34,7 @@
         "atacDataLog": "/net/bbi/vol1/data/genomes_stage/human/human_atac/record.out",
         "gene_score_bed": "/net/bbi/vol1/data/genomes_stage/human/human_atac/gene_bodies.plus_2kb_upstream.bed.gz",
         "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes_stage/human/human_atac/gene_bodies_gene_map.txt",
-        "motifs": "/net/bbi/vol1/data/genomes_stage/vertebrates/motifs/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
+        "motifs": "/net/bbi/vol1/data/genomes_stage/vertebrates/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
         "fasta": "/net/bbi/vol1/data/genomes_stage/human/human_atac/Homo_sapiens.GRCh38.dna.toplevel.fa.finished",
         "bowtie_index": "/net/bbi/vol1/data/genomes_stage/human/human_atac/human",
         "macs_genome": "hs",
