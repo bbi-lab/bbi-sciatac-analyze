@@ -247,7 +247,7 @@ import java.nio.file.Paths
 ** Nextflow and main.nf versions.
 */
 nextflow_version = nextflow.version.toString()
-bbi_sciatac_analyze_version = "1.0.0"
+bbi_sciatac_analyze_version = "1.0.1"
 
 
 /*
