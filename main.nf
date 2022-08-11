@@ -245,9 +245,10 @@ import java.nio.file.Paths
 
 /*
 ** Nextflow and main.nf versions.
+** manifest.version in set in the nextflow.config file.
 */
 nextflow_version = nextflow.version.toString()
-bbi_sciatac_analyze_version = "1.0.1"
+bbi_sciatac_analyze_version = "$params.version"
 
 
 /*
@@ -468,6 +469,9 @@ process log_pipeline_versions {
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     PIPELINE_VERSIONS_JSON="{\\\"nextflow_version\\\": ${nextflow_version}, {\\\"bbi_sciatac_analyze_version\\\": ${bbi_sciatac_analyze_version}}"
 
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -527,6 +531,10 @@ process sortTssBedProcess {
     fi
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -537,6 +545,7 @@ process sortTssBedProcess {
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir} \
+    -c "outBed=\"${tssBedMap['sample']}-${tssBedMap['genome']}.tss_file.sorted.bed.gz\"" "zcat ${tssBedMap['inBed']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}" \
     \${LOG_FILES_PARAMETER}
 	"""
 }
@@ -585,6 +594,10 @@ process sortChromosomeSizeProcess {
     fi
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -595,6 +608,7 @@ process sortChromosomeSizeProcess {
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir} \
+    -c "outTxt=\"${chromosomeSizeMap['sample']}-${chromosomeSizeMap['genome']}.chromosome_sizes.sorted.txt\"" "cat ${chromosomeSizeMap['inTxt']} | sort -k1,1V -k2,2n -k3,3n > \${outTxt}" \
     \${LOG_FILES_PARAMETER}
 	"""
 }
@@ -643,6 +657,10 @@ process sortPeakFileProcess {
     zcat -f ${peakFileMap['inBed']} | sort -k1,1V -k2,2n -k3,3n > \${outBed}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -652,7 +670,8 @@ process sortPeakFileProcess {
     -j "{\\\"peak_file_path\\\": \\\"${peakFileMap['inBed']}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outBed=\"${peakFileMap['sample']}-${peakFileMap['nameBed']}\"" "zcat -f ${peakFileMap['inBed']} | sort -k1,1V -k2,2n -k3,3n > \${outBed}"
     """
 }
 
@@ -767,19 +786,69 @@ process runAlignProcess {
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
     MITO_READS="{\\\"mitochondrial_reads\\\": ${alignMap['has_whitelist_with_mt']}}"
-    $script_dir/pipeline_logger.py \
-    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
-    -n \${SAMPLE_NAME} \
-    -x "Lane ${alignMap['lane']}" \
-    -p \${PROCESS_BLOCK} \
-    -v 'bowtie2 --version | head -1' 'samtools --version | head -2' 'bedtools --version' 'awk --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' \
-    -j "{\\\"genome_index\\\": \\\"${alignMap['genome_index']}\\\", \\\"whitelist_file_path\\\": \\\"\${WHITELIST_FILE_PATH}\\\", \\\"seed\\\": \\\"${alignMap['seed']}\\\"}"  \
-    -s \${START_TIME} \
-    -e \${STOP_TIME} \
-    -f \${bowtieStderr} \
-    -j "\${MITO_READS}" \
-    -d ${log_dir} \
-    \${LOG_FILES_PARAMETER}
+
+    #
+    # Logging block.
+    #
+    if [ "${alignMap['has_whitelist_with_mt']}" == "true" ]
+    then
+      $script_dir/pipeline_logger.py \
+      -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+      -n \${SAMPLE_NAME} \
+      -x "Lane ${alignMap['lane']}" \
+      -p \${PROCESS_BLOCK} \
+      -v 'bowtie2 --version | head -1' 'samtools --version | head -2' 'bedtools --version' 'awk --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' \
+      -j "{\\\"genome_index\\\": \\\"${alignMap['genome_index']}\\\", \\\"whitelist_file_path\\\": \\\"\${WHITELIST_FILE_PATH}\\\", \\\"seed\\\": \\\"${alignMap['seed']}\\\"}"  \
+      -s \${START_TIME} \
+      -e \${STOP_TIME} \
+      -f \${bowtieStderr} \
+      -j "\${MITO_READS}" \
+      -d ${log_dir} \
+      \${LOG_FILES_PARAMETER} \
+      -c "bowtieStderr=\"${alignMap['sample']}-${alignMap['lane']}.bowtie.stderr\"" \
+"samtoolsViewStderr=\"${alignMap['sample']}-${alignMap['lane']}.samtools_view.stderr\"" \
+"samtoolsSortStderr=\"${alignMap['sample']}-${alignMap['lane']}.samtools_sort.stderr\"" \
+"outBam=\"${alignMap['sample']}-${alignMap['lane']}.bam\"" \
+"WHITELIST_FILE_PATH=\"${alignMap['whitelist_with_mt']}\"" \
+"bowtie2 -3 1 \
+-X 2000 \
+-p ${task.cpus} \
+-x ${alignMap['genome_index']} \
+-1 ${alignMap['fastq1']} \
+-2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
+| samtools view -h -L ${alignMap['whitelist_with_mt']} -f3 -F12 -q10 - 2> \${samtoolsViewStderr} \
+| ${script_dir}/divert_mito_alignments.py -o \${outMito}.sam \
+| samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}" \
+"samtools sort -T \${outMito}.sorttemp --threads 4 \${outMito}.sam -o \${outMito}.bam"
+    else
+      $script_dir/pipeline_logger.py \
+      -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+      -n \${SAMPLE_NAME} \
+      -x "Lane ${alignMap['lane']}" \
+      -p \${PROCESS_BLOCK} \
+      -v 'bowtie2 --version | head -1' 'samtools --version | head -2' 'bedtools --version' 'awk --version | head -1' 'sort --version | head -1' 'uniq --version | head -1' \
+      -j "{\\\"genome_index\\\": \\\"${alignMap['genome_index']}\\\", \\\"whitelist_file_path\\\": \\\"\${WHITELIST_FILE_PATH}\\\", \\\"seed\\\": \\\"${alignMap['seed']}\\\"}"  \
+      -s \${START_TIME} \
+      -e \${STOP_TIME} \
+      -f \${bowtieStderr} \
+      -j "\${MITO_READS}" \
+      -d ${log_dir} \
+      \${LOG_FILES_PARAMETER} \
+      -c "bowtieStderr=\"${alignMap['sample']}-${alignMap['lane']}.bowtie.stderr\"" \
+"samtoolsViewStderr=\"${alignMap['sample']}-${alignMap['lane']}.samtools_view.stderr\"" \
+"samtoolsSortStderr=\"${alignMap['sample']}-${alignMap['lane']}.samtools_sort.stderr\"" \
+"outBam=\"${alignMap['sample']}-${alignMap['lane']}.bam\"" \
+"WHITELIST_FILE_PATH=\"${alignMap['whitelist']}\""
+"bowtie2 -3 1 \
+-X 2000 \
+-p ${task.cpus} \
+-x ${alignMap['genome_index']} \
+-1 ${alignMap['fastq1']} \
+-2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
+| samtools view -h -L ${alignMap['whitelist']} -f3 -F12 -q10 - 2> \${samtoolsViewStderr} \
+| samtools sort -T \${outBam}.sorttemp --threads 4 -o \${outBam} - 2> \${samtoolsSortStderr}" \
+"samtools view -H -o \${outMito}.bam \${outBam}"
+    fi
 	"""
 }
 
@@ -831,14 +900,36 @@ process mergeBamsProcess {
     popd
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
-    $script_dir/pipeline_logger.py \
-    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
-    -n \${SAMPLE_NAME} \
-    -p \${PROCESS_BLOCK} \
-    -v 'sambamba --version 2>&1 > /dev/null | head -2 | tail -1' 'samtools --version | head -2' \
-    -s \${START_TIME} \
-    -e \${STOP_TIME} \
-    -d ${log_dir}
+
+    #
+    # Logging block.
+    #
+    if [ ${inMergeBamMap['numBamFiles']} -gt 1 ]
+    then
+      $script_dir/pipeline_logger.py \
+      -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+      -n \${SAMPLE_NAME} \
+      -p \${PROCESS_BLOCK} \
+      -v 'sambamba --version 2>&1 > /dev/null | head -2 | tail -1' 'samtools --version | head -2' \
+      -s \${START_TIME} \
+      -e \${STOP_TIME} \
+      -d ${log_dir} \
+      -c "outBam=\"${inMergeBamMap['sample']}-merged.bam\"" \
+         "sambamba merge --nthreads ${task.cpus} \${outBam} ${inBams}" \
+         "samtools index \${outBam}"
+    else
+      $script_dir/pipeline_logger.py \
+      -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+      -n \${SAMPLE_NAME} \
+      -p \${PROCESS_BLOCK} \
+      -v 'sambamba --version 2>&1 > /dev/null | head -2 | tail -1' 'samtools --version | head -2' \
+      -s \${START_TIME} \
+      -e \${STOP_TIME} \
+      -d ${log_dir} \
+      -c "outBam=\"${inMergeBamMap['sample']}-merged.bam\"" \
+         "cp ${inBams} \${outBam}" \
+         "samtools index \${outBam}"
+    fi
 	"""
 }
 
@@ -884,6 +975,10 @@ process mergeMitoBamsProcess {
     popd
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -891,7 +986,10 @@ process mergeMitoBamsProcess {
     -v 'sambamba --version 2>&1 > /dev/null | head -2 | tail -1' 'samtools --version | head -2' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outMitoBam=\"${inMergeMitoBamMap['sample']}-merged.mito.bam\"" \
+       "sambamba merge --nthreads ${task.cpus} \${outMitoBam} ${inMitoBams}" \
+       "samtools index \${outMitoBam}"
     """
 }
 
@@ -994,6 +1092,10 @@ process getUniqueFragmentsProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1001,7 +1103,21 @@ process getUniqueFragmentsProcess {
     -v 'python3 --version' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'bedtools --version | head -1' 'awk --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outFragments=\"${inUniqueFragmentsMap['sample']}-fragments.txt\"" \
+       "outTranspositionSites=\"${inUniqueFragmentsMap['sample']}-transposition_sites.bed\"" \
+       "outInsertSizes=\"${inUniqueFragmentsMap['sample']}-insert_sizes.txt\"" \
+       "outDuplicateReport=\"${inUniqueFragmentsMap['sample']}-duplicate_report.txt\"" \
+       "python ${script_dir}/get_unique_fragments.py \
+${inBam} \
+--fragments \${outFragments} \
+--transposition_sites_bed \${outTranspositionSites} \
+--duplicate_read_counts \${outDuplicateReport} \
+--insert_sizes \${outInsertSizes}" \
+       "bgzip -f \${outFragments}" \
+       "tabix -p bed \${outFragments}.gz" \
+       "bgzip -f \${outTranspositionSites}" \
+       "tabix -p bed \${outTranspositionSites}.gz"
 	"""
 }
 
@@ -1089,6 +1205,10 @@ process getUniqueFragmentsMitoProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1096,7 +1216,21 @@ process getUniqueFragmentsMitoProcess {
     -v 'python3 --version' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'bedtools --version | head -1' 'awk --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outMitoFragments=\"${inUniqueFragmentsMitoMap['sample']}-mito.fragments.txt\"" \
+       "outMitoTranspositionSites=\"${inUniqueFragmentsMitoMap['sample']}-mito.transposition_sites.bed\"" \
+       "outMitoInsertSizes=\"${inUniqueFragmentsMitoMap['sample']}-mito.insert_sizes.txt\"" \
+       "outMitoDuplicateReport=\"${inUniqueFragmentsMitoMap['sample']}-mito.duplicate_report.txt\"" \
+       "python ${script_dir}/get_unique_fragments.py \
+${inMitoBam} \
+--fragments \${outMitoFragments} \
+--transposition_sites_bed \${outMitoTranspositionSites} \
+--duplicate_read_counts \${outMitoDuplicateReport} \
+--insert_sizes \${outMitoInsertSizes}" \
+       "bgzip -f \${outMitoFragments}" \
+       "tabix -p bed \${outMitoFragments}.gz" \
+       "bgzip -f \${outMitoTranspositionSites}" \
+       "tabix -p bed \${outMitoTranspositionSites}.gz"
 	"""
 }
 
@@ -1150,9 +1284,12 @@ process combineReadCountsProcess {
     outDuplicateReport="${inDuplicateReportMap['sample']}-combined.duplicate_report.txt"
 
 	python ${script_dir}/combine_read_counts.py --input_duplicate_report ${inDuplicateReport} --input_mito_duplicate_report ${inMitoDuplicateReport} --output_combined_duplicate_report \${outDuplicateReport}
-echo foo
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1160,7 +1297,9 @@ echo foo
     -v 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outDuplicateReport=\"${inDuplicateReportMap['sample']}-combined.duplicate_report.txt\"" \
+       "python ${script_dir}/combine_read_counts.py --input_duplicate_report ${inDuplicateReport} --input_mito_duplicate_report ${inMitoDuplicateReport} --output_combined_duplicate_report \${outDuplicateReport}"
     """
 }
 
@@ -1256,6 +1395,10 @@ process callPeaksProcess {
 	rm \${outMacsNarrowPeak}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1263,7 +1406,28 @@ process callPeaksProcess {
     -v 'python3 --version' 'macs2 --version' 'sort --version | head -1' 'cut --version | head -1' 'gzip --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outDir=\"call_peaks\"" \
+       "outMacsNarrowPeak=\"\${outDir}/${inCallPeaksMap['sample']}_peaks.narrowPeak\"" \
+       "outNarrowPeak=\"${inCallPeaksMap['sample']}-peaks.narrowPeak.gz\"" \
+       "outMacsXls=\"\${outDir}/${inCallPeaksMap['sample']}_peaks.xls\"" \
+       "outXls=\"${inCallPeaksMap['sample']}-peaks.xls\"" \
+       "outMacsSummits=\"\${outDir}/${inCallPeaksMap['sample']}_summits.bed\"" \
+       "outSummits=\"${inCallPeaksMap['sample']}-summits.bed\"" \
+       "macs2 callpeak -t ${inBed} \
+-f BED \
+-g ${inCallPeaksMap['macs_genome']} \
+--nomodel \
+--shift -100 \
+--extsize 200 \
+--keep-dup all \
+--call-summits \
+-n ${inCallPeaksMap['sample']} \
+--outdir \${outDir} 2> /dev/null" \
+       "cat \${outMacsNarrowPeak} \
+| sort -k1,1V -k2,2n -k3,3n \
+| cut -f1-3 \
+| gzip > \${outNarrowPeak}"
 	"""
 }
 
@@ -1341,6 +1505,10 @@ process mergePeaksByGroupProcess {
     done
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1349,7 +1517,13 @@ process mergePeaksByGroupProcess {
     -v 'zcat --version | head -1' 'cut --version | head -1' 'bedtools --version' 'sort --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outGroupBed=\"${mergePeaksMap['group']}-group_merged_peaks_set.bed\"" \
+       "zcat inBeds* \
+| cut -f1-3 \
+| sort -k1,1V -k2,2n -k3,3n \
+| bedtools merge -i - \
+| sort -k1,1V -k2,2n -k3,3n > \${outGroupBed}"
 	"""
 }
 
@@ -1404,6 +1578,10 @@ process mergePeaksByFileProcess {
     echo "${mergePeaksMap['listBeds']}" > \${outBedList}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1411,7 +1589,13 @@ process mergePeaksByFileProcess {
     -v 'cut --version | head -1' 'sort --version | head -1' 'bedtools --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outBed=\"${mergePeaksMap['sample']}-merged_peaks.bed\"" \
+       "cat inBeds* \
+| cut -f1-3 \
+| sort -k1,1V -k2,2n -k3,3n \
+| bedtools merge -i - \
+| sort -k1,1V -k2,2n -k3,3n > \${outBed}"
     """
 }
 
@@ -1474,6 +1658,10 @@ process makeWindowedGenomeIntervalsProcess {
         > \${outBed}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1482,7 +1670,12 @@ process makeWindowedGenomeIntervalsProcess {
     -j "{\\\"window_size\\\": \\\"${task.ext.window_size}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outBed=\"${inGenomeSizesMap['sample']}-genomic_windows.bed\"" \
+       "bedtools makewindows \
+-g ${inGenomeSizes} \
+-w ${task.ext.window_size} \
+> \${outBed}"
 	"""
 }
 
@@ -1531,6 +1724,10 @@ process makePromoterSumIntervalsProcess {
         echo "Gene score bed file was used to define gene regions" > ${inMap['sample']}-gene_regions_note.txt
 
         STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+        #
+        # Logging block.
+        #
         $script_dir/pipeline_logger.py \
         -r `cat ${tmp_dir}/nextflow_run_name.txt` \
         -n \${SAMPLE_NAME} \
@@ -1538,7 +1735,9 @@ process makePromoterSumIntervalsProcess {
         -v 'zcat --version | head -1' 'sort --version | head -1' 'gzip --version | head -1' \
         -s \${START_TIME} \
         -e \${STOP_TIME} \
-        -d ${log_dir}
+        -d ${log_dir} \
+        -c "outBed=\"${inMap['sample']}-gene_regions.bed.gz\"" \
+           "zcat ${inMap['inBedFile']} | sort -k1,1V -k2,2n -k3,3n | gzip > \${outBed}"
         """
 	else
         """
@@ -1569,6 +1768,10 @@ process makePromoterSumIntervalsProcess {
         echo "TSS definitions and peak locations were used to define gene regions (check this description)" > ${inMap['sample']}-gene_regions_note.txt
 
         STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+        #
+        # Logging block.
+        #
         $script_dir/pipeline_logger.py \
         -r `cat ${tmp_dir}/nextflow_run_name.txt` \
         -n \${SAMPLE_NAME} \
@@ -1577,7 +1780,23 @@ process makePromoterSumIntervalsProcess {
         -j "{\\\"proximal_upstream\\\": \\\"${task.ext.proximal_upstream}\\\", \\\"proximal_downstream\\\": \\\"${task.ext.proximal_downstream}\\\", \\\"peak_to_tss_distance_threshold\\\": \\\"${task.ext.peak_to_tss_distance_threshold}\\\"}" \
         -s \${START_TIME} \
         -e \${STOP_TIME} \
-        -d ${log_dir}
+        -d ${log_dir} \
+        -c "outBed=\"${inMap['sample']}-gene_regions.bed.gz\"" \
+           "bedtools closest \
+-d \
+-a ${inPath} \
+-b <(bedtools window \
+-sw \
+-l ${task.ext.proximal_upstream} \
+-r ${task.ext.proximal_downstream} \
+-a ${inMap['tssFile']} \
+-b ${inPath} \
+| cut -f 1-6 \
+| uniq ) \
+| awk '{{ if (\\\$10 <= ${task.ext.peak_to_tss_distance_threshold} ) print \\\$0 }}' \
+| cut -f 1,2,3,7 \
+| sort -k1,1V -k2,2n -k3,3n \
+| uniq | gzip > \${outBed}"
         """
 }
 
@@ -1656,6 +1875,10 @@ process makeMergedPeakRegionCountsProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1664,7 +1887,15 @@ process makeMergedPeakRegionCountsProcess {
     -j "{\\\"flanking_distance\\\": \\\"${task.ext.flanking_distance}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outCounts=\"${inMergedPeaksMap['sample']}-peak_counts.txt\"" \
+       "tmpRegions=\"${inMergedPeaksMap['sample']}-temp_regions.gz\"" \
+       "bedtools slop -i ${inMergedPeaks} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance} \
+| bedtools merge -i stdin \
+| gzip > \${tmpRegions}" \
+       "python ${script_dir}/get_region_counts.py \
+--transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${tmpRegions}) \
+--output_file \${outCounts}"
 	"""
 }
 
@@ -1738,6 +1969,10 @@ process makeTssRegionCountsProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1746,7 +1981,15 @@ process makeTssRegionCountsProcess {
     -j "{\\\"flanking_distance\\\": \\\"${task.ext.flanking_distance}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outCounts=\"${inTssRegionMap['sample']}-tss_counts.txt\"" \
+       "tmpRegions=\"${inTssRegionMap['sample']}-temp_regions.gz\"" \
+       "bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance} \
+| bedtools merge -i stdin \
+| gzip > \${tmpRegions}" \
+       "python ${script_dir}/get_region_counts.py \
+--transposition_sites_intersect <(bedtools intersect -sorted -a ${inTranspositionSites} -b \${tmpRegions}) \
+--output_file \${outCounts}"
     """
 }
 
@@ -1806,6 +2049,10 @@ process makeCountReportsProcess {
     Rscript ${script_dir}/make_count_report.R ${inDuplicateReport} ${inMergedPeakRegionCounts} ${inTssRegionCounts} \${outCountReport}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1813,7 +2060,9 @@ process makeCountReportsProcess {
     -v 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outCountReport=\"${inDuplicateReportMap['sample']}-count_report.txt\"" \
+       "Rscript ${script_dir}/make_count_report.R ${inDuplicateReport} ${inMergedPeakRegionCounts} ${inTssRegionCounts} \${outCountReport}"
 	"""
 }
 
@@ -1891,6 +2140,10 @@ process callCellsProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1898,7 +2151,18 @@ process callCellsProcess {
     -v 'python3 --version' 'sort --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outCalledCellsCounts=\"${inCountReportMap['sample']}-called_cells.txt\"" \
+       "outCellWhiteList=\"${inCountReportMap['sample']}-called_cells_whitelist.txt\"" \
+       "outCallCellsStats=\"${inCountReportMap['sample']}-called_cells_stats.json\"" \
+       "python ${script_dir}/call_cells.py \${outCalledCellsCounts} \
+\${outCellWhiteList} \
+--fit_metadata \${outCallCellsStats} \
+--count_report ${inCountReport} ${readsThresholdParameter}" \
+       "mv \${outCellWhiteList} cell_whitelist.txt.tmp" \
+       "sort cell_whitelist.txt.tmp > \${outCellWhiteList}"
+
+
 	"""
 }
 
@@ -1976,6 +2240,10 @@ process getPerBaseCoverageTssProcess {
     rm \${tmpOut}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -1984,7 +2252,14 @@ process getPerBaseCoverageTssProcess {
     -j "{\\\"flanking_distance\\\": \\\"${task.ext.flanking_distance}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outCoverage=\"${inTssRegionMap['sample']}-tss_region_coverage.txt.gz\"" \
+       "tmpOut=\"${inTssRegionMap['sample']}-temp_file.gz\"" \
+       "bedtools slop -i ${inTssRegions} -g ${inChromosomeSizes} -b ${task.ext.flanking_distance}  \
+| bedtools coverage -sorted -d -a stdin -b ${inTranspositionSites} \
+| awk '{{ if (\\\$8 > 0) print \\\$0 }}' \
+| gzip > \${tmpOut}" \
+       "Rscript ${script_dir}/aggregate_per_base_tss_region_counts.R \${tmpOut} \${outCoverage}"
 	"""
 }
 
@@ -2056,6 +2331,10 @@ process makePeakMatrixProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2063,7 +2342,13 @@ process makePeakMatrixProcess {
     -v 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outPeakMatrix=\"${inMergedPeaksMap['sample']}-peak_matrix.mtx.gz\"" \
+       "python ${script_dir}/generate_sparse_matrix.py \
+--transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inMergedPeaks} -b ${inTranspositionSites} -wa -wb) \
+--intervals ${inMergedPeaks} \
+--cell_whitelist ${inCellWhitelist} \
+--matrix_output \${outPeakMatrix}"
 	"""
 }
 
@@ -2129,6 +2414,10 @@ process makeWindowMatrixProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2136,7 +2425,13 @@ process makeWindowMatrixProcess {
     -v 'python3 --version' 'bedtools --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outWindowMatrix=\"${inWindowedIntervalsMap['sample']}-window_matrix.mtx.gz\"" \
+       "python ${script_dir}/generate_sparse_matrix.py \
+--transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inWindowedIntervals} -b ${inTranspositionSites} -wa -wb) \
+--intervals ${inWindowedIntervals} \
+--cell_whitelist ${inCellWhitelist} \
+--matrix_output \${outWindowMatrix}"
 	"""
 }
 
@@ -2207,6 +2502,10 @@ process makePromoterMatrixProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2214,7 +2513,17 @@ process makePromoterMatrixProcess {
     -v 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outPromoterMatrix=\"${inGeneRegionsMap['sample']}-promoter_matrix.mtx.gz\"" \
+       "python ${script_dir}/generate_sparse_matrix.py \
+--transposition_sites_intersect <(bedtools intersect -sorted -g ${inChromosomeSizes} -a ${inGeneRegions} -b ${inTranspositionSites} -wa -wb) \
+--intervals ${inGeneRegions} \
+--cell_whitelist ${inCellWhitelist} \
+--matrix_output \${outPromoterMatrix}" \
+       "mv ${inGeneRegionsMap['inPromoterMatrixRows']} promoter_matrix_rows.txt.no_metadata" \
+       "${script_dir}/add_gene_metadata.py --in_promoter_matrix_row_name_file promoter_matrix_rows.txt.no_metadata \
+                                       --gene_metadata_file ${inGeneRegionsMap['inGeneBodiesGeneMap']} \
+                                       --out_promoter_matrix_row_name_file ${inGeneRegionsMap['inPromoterMatrixRows']}"
 	"""
 }
 
@@ -2356,6 +2665,10 @@ process summarizeCellCallsProcess {
         --output_stats \${outSummaryStats} \${barnyardParams}
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2363,7 +2676,22 @@ process summarizeCellCallsProcess {
     -v 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outSummaryPlot=\"${inCountReportsMap['sample']}-called_cells_summary.pdf\"" \
+       "outSummaryStats=\"${inCountReportsMap['sample']}-called_cells_summary.stats.txt\"" \
+       "Rscript ${script_dir}/summarize_cell_calls.R \
+--sample_name ${inCountReportsMap['sample']} \
+--read_count_tables ${inCountReports} \
+--stats_files ${inCalledCellStats} \
+--insert_size_tables ${inInsertSizes} \
+--peak_groups \${PEAK_GROUP} \
+--peak_files \${PEAK_FILE} \
+--peak_call_files ${inNarrowPeaks} \
+--merged_peaks ${inMergedPeaks} \
+--per_base_tss_region_coverage_files ${inPerBaseCoverageTss} \
+--combined_duplicate_report ${inCombinedDuplicateReport} \
+--plot \${outSummaryPlot} \
+--output_stats \${outSummaryStats} \${barnyardParams}"
     """
 }
 
@@ -2453,6 +2781,10 @@ process makeGenomeBrowserFilesProcess {
     tabix -p bed \${outTranspositionSitesGb}.bed.gz
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2533,6 +2865,10 @@ process getBandingScoresProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2540,7 +2876,11 @@ process getBandingScoresProcess {
     -v 'python3 --version' 'R --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outPerCellInsertSizesFile=\"${inFragmentsMap['sample']}-per_cell_insert_sizes.txt\"" \
+       "outBandingScoresFile=\"${inFragmentsMap['sample']}-banding_scores.txt\"" \
+       "python ${script_dir}/get_insert_size_distribution_per_cell.py ${inFragments} \${outPerCellInsertSizesFile} --barcodes ${inCellWhitelist}" \
+       "Rscript ${script_dir}/calculate_nucleosome_banding_scores.R \${outPerCellInsertSizesFile} \${outBandingScoresFile} --barcodes ${inCellWhitelist}"
     """
 }
 
@@ -2624,6 +2964,10 @@ process callMotifsProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2633,7 +2977,10 @@ process callMotifsProcess {
     -j "{\\\"pwm_threshold\\\": \\\"${task.ext.pwm_threshold}\\\"}" \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "gc_bin_padded=`echo ${inMergedPeaksMap['gc_bin']} | awk '{printf("%02d",\\\$1+1)}'`" \
+       "outGcBinned=\"${inMergedPeaksMap['sample']}-gc_\${gc_bin_padded}-peak_calls.bb\"" \
+       "python ${script_dir}/call_peak_motifs.py ${inMergedPeaksMap['fasta']} ${inMergedPeaks} ${inMergedPeaksMap['motifs']} \${outGcBinned} --gc_bin ${inMergedPeaksMap['gc_bin']} --pwm_threshold ${task.ext.pwm_threshold}"
 	"""
 }
 
@@ -2705,6 +3052,10 @@ process makeMotifMatrixProcess {
     deactivate
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2712,7 +3063,14 @@ process makeMotifMatrixProcess {
     -v 'python3 --version' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "outPeakTfMatrix=\"${inPeakCallsMap['sample']}-peak_motif_matrix.mtx.gz\"" \
+       "python ${script_dir}/generate_motif_matrix.py \
+--peak_motif_files ${inPeakCalls} \
+--fasta ${inPeakCallsMap['fasta']} \
+--peaks ${inMergedPeaks} \
+--motifs ${inPeakCallsMap['motifs']} \
+--peak_tf_matrix \${outPeakTfMatrix}"
 	"""
 }
 
@@ -2894,6 +3252,10 @@ process makeReducedDimensionMatrixProcess {
     fi
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -2903,7 +3265,38 @@ process makeReducedDimensionMatrixProcess {
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -f \${outReduceDimensionsLogFile} \${outBlackListRegionsFile} \
-    -d ${log_dir}
+    -d ${log_dir} \
+    -c "inPeakMatrix=\"${inPeakMatrixMap['sample']}-peak_matrix.mtx.gz\"" \
+       "inSampleName=\"${inPeakMatrixMap['sample']}\"" \
+       "outScrubletHistFile=\"${inPeakMatrixMap['sample']}-scrublet_hist.png\"" \
+       "outScrubletTableFile=\"${inPeakMatrixMap['sample']}-scrublet_table.csv\"" \
+       "outLsiCoordsFile=\"${inPeakMatrixMap['sample']}-lsi_coords.txt\"" \
+       "outUmapCoordsFile=\"${inPeakMatrixMap['sample']}-umap_coords.txt\"" \
+       "outUmapPlotFile=\"${inPeakMatrixMap['sample']}-umap_plot\"" \
+       "outMonocle3CdsFile=\"${inPeakMatrixMap['sample']}-monocle3_cds.rds\"" \
+       "outBlackListRegionsFile=\"${inPeakMatrixMap['sample']}-blacklist_regions_file.log\"" \
+       "outReduceDimensionsLogFile=\"${inPeakMatrixMap['sample']}-reduce_dimensions.log\"" \
+       "umi_cutoff=$task.ext.umi_cutoff" \
+       "frip_cutoff=$task.ext.frip_cutoff" \
+       "frit_cutoff=$task.ext.frit_cutoff" \
+       "num_lsi_dimensions=$task.ext.num_lsi_dimensions" \
+       "cluster_resolution=$task.ext.cluster_resolution" \
+       "doublet_predict_top_ntile=$task.ext.doublet_predict_top_ntile" \
+       "Rscript ${script_dir}/reduce_dimensions.R \
+--sample_name \${inSampleName} \
+--mat_file \${inPeakMatrix} \
+--count_file ${inCountReport} \
+--umi_cutoff \${umi_cutoff} \
+--frip_cutoff \${frip_cutoff} \
+--frit_cutoff \${frit_cutoff} \
+--doublet_predict_top_ntile \${doublet_predict_top_ntile} \
+--num_lsi_dimensions \${num_lsi_dimensions} \
+--cluster_resolution \${cluster_resolution} \
+--combined_read_count ${inCombinedDuplicateReport} \
+--cds_file \${outMonocle3CdsFile} \
+--lsi_coords_file \${outLsiCoordsFile} \
+--umap_coords_file \${outUmapCoordsFile} \
+--umap_plot_file \${outUmapPlotFile} \${doublet_predict} \${black_list_file}"
 	"""
 }
 
@@ -2949,6 +3342,10 @@ process experimentDashboardProcess {
 	cp ${script_dir}/skeleton_dash/exp_dash.html ${output_dir}/analyze_dash
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
@@ -3018,6 +3415,10 @@ process makeMergedPlotFilesProcess {
     done
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
     $script_dir/pipeline_logger.py \
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
