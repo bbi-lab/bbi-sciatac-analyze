@@ -16,12 +16,12 @@
 # Nextflow executable and pipeline script locations.
 #
 NEXTFLOW="/net/gs/vol1/home/bge/bin/nextflow"
-NF_MAIN="/net/gs/vol1/home/bge/git/bbi-sciatac-analyze/main.nf"
+NF_MAIN="<path_to_bbi-sciatac-analyze_repository/main.nf"
 
 #
 # Current date and time.
 #
-NOW=`date '+%Y%m%d.%H%M%S'`
+NOW=`date '+%Y%m%d_%H%M%S'`
 
 #
 # Path to the Nextflow processing run configuration file.
@@ -48,14 +48,15 @@ WORK_DIR="$ANALYZE_DIR/work"
 # Nextflow writes some informative processing information
 # in the analyze output directory.
 #
-REPORT_FIL="$ANALYZE_DIR/run_reports/analyze.report.html"
-TRACE_FIL="$ANALYZE_DIR/run_reports/analyze.trace.tsv"
-TIMELINE_FIL="$ANALYZE_DIR/run_reports/analyze.timeline.html"
+# REPORT_FIL="$ANALYZE_DIR/run_reports/analyze.report.${NOW}.html"
+TRACE_FIL="$ANALYZE_DIR/run_reports/analyze.trace.${NOW}.tsv"
+# TIMELINE_FIL="$ANALYZE_DIR/run_reports/analyze.timeline.${NOW}.html"
 
 #
 # Nextflow run parameters.
 #
-PARS="-c $CONFIG_FILE -w $WORK_DIR -with-report $REPORT_FIL -with-trace $TRACE_FIL -with-timeline $TIMELINE_FIL -resume"
+# PARS="-c $CONFIG_FILE -w $WORK_DIR -with-report $REPORT_FIL -with-trace $TRACE_FIL -with-timeline $TIMELINE_FIL -resume"
+PARS="-c $CONFIG_FILE -w $WORK_DIR -with-trace $TRACE_FIL -resume"
 
 mkdir -p $ANALYZE_DIR/run_reports
 pushd $ANALYZE_DIR
