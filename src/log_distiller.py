@@ -21,7 +21,7 @@ import argparse
 import textwrap
 import json
 
-LOG_DISTILLER_VERSION = '20220502a'
+LOG_DISTILLER_VERSION = '20221101a'
 
 
 # Sample ordering lists. In fact these are non-sample-based processes such as
@@ -68,6 +68,9 @@ def filename_tokenizer(filename):
     return({'is_logfile': False})
 
   is_logfile      = parts[-1] == 'json'
+  if(not is_logfile):
+    return({'is_logfile': False})
+
   work_directory  = parts[-2]
   pipeline_runid  = parts[-3]
   process_name    = parts[-4]
