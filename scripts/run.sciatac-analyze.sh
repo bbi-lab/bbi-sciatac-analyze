@@ -15,7 +15,7 @@
 #
 # Nextflow executable and pipeline script locations.
 #
-NEXTFLOW="/net/gs/vol1/home/bge/bin/nextflow"
+NEXTFLOW="<path_to_nextflow_program>"
 NF_MAIN="<path_to_bbi-sciatac-analyze_repository/main.nf"
 
 #

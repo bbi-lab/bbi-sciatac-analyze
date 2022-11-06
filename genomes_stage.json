@@ -100,5 +100,19 @@
         "bowtie_index": "/net/bbi/vol1/data/genomes_stage/macaque/macaque_atac/macaque",
         "macs_genome": "2.94e9",
         "aligner_memory": 12
+    },
+    "zebrafish": {
+        "name": "zebrafish",
+        "chromosome_sizes": "/net/bbi/vol1/data/genomes_stage/zebrafish/zebrafish_atac/chromosome_sizes_atac.txt",
+        "whitelist_regions": "/net/bbi/vol1/data/genomes_stage/zebrafish/zebrafish_atac/whitelist_regions.bed",
+        "whitelist_with_mt_regions": "/net/bbi/vol1/data/genomes_stage/zebrafish/zebrafish_atac/whitelist_with_mt_regions.bed",
+        "tss": "/net/bbi/vol1/data/genomes_stage/zebrafish/zebrafish_atac/tss.bed.gz",
+        "gene_score_bed": "/net/bbi/vol1/data/genomes_stage/zebrafish/zebrafish_atac/gene_bodies.plus_2kb_upstream.bed.gz",
+        "gene_bodies_gene_map": "/net/bbi/vol1/data/genomes_stage/zebrafish/zebrafish_atac/gene_bodies_gene_map.txt",
+        "motifs": "/net/bbi/vol1/data/genomes_stage/vertebrates/motifs/JASPAR2018_CORE_vertebrates_non-redundant_pfms_jaspar.pfm",
+        "fasta": "/net/bbi/vol1/data/genomes_stage/zebrafish/zebrafish_atac/Danio_rerio.GRCz11.dna.toplevel.fa.finished",
+        "bowtie_index": "/net/bbi/vol1/data/genomes_stage/zebrafish/zebrafish_atac/zebrafish",
+        "macs_genome": "1.37e9",
+        "aligner_memory": 12
     }
 }
