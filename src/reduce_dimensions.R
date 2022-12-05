@@ -79,7 +79,7 @@ filter_features_z <- function(bmat, lower_bound=-1.5, upper_bound=1.5, downsampl
       sampled_features <- sample(names(feature_totals), prob=probabilities, size=downsample, replace=FALSE)
       feature_totals <- feature_totals[sampled_features]
     }
-    return(bmat[names(feature_totals),])
+    return(bmat[names(feature_totals),, drop=FALSE])
 }
 
 
@@ -221,7 +221,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     message_log('ReduceDimensions: FRIT cutoff: ', frit_cutoff)
 
     qc_cells <- filter(cDat_f, umi_binarized > umi_cutoff, FRIP > frip_cutoff, FRIT > frit_cutoff) %>% select(cell)
-    pMat <- pMat[,colnames(pMat) %in% qc_cells$cell]
+    pMat <- pMat[,colnames(pMat) %in% qc_cells$cell, drop=FALSE]
 
     num_features_cell_filter <- dim(pMat)[1]
     num_cells_cell_filter <- dim(pMat)[2]
@@ -249,7 +249,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
         blacklist <- read.table(black_list_file, sep='\t')
         colnames(blacklist) <- c('chrom', 'start', 'end')
         features_f <- filter_regions(features=row.names(pMat), blacklist_df=blacklist)
-        pMat <- pMat[row.names(pMat) %in% features_f,]
+        pMat <- pMat[row.names(pMat) %in% features_f,, drop=FALSE]
         num_features_feature_black_list_filter <- dim(pMat)[1]
         num_cells_feature_black_list_filter <- dim(pMat)[2]
         message_log('ReduceDimensions: peak matrix dimensions post-black-list filter: ', num_features_feature_black_list_filter, ' x ', num_cells_feature_black_list_filter)
@@ -265,7 +265,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
     #       zero runtime warning because scrublet normalizes the
     #       cell read counts.
     umi_cells <- Matrix::colSums(pMat)
-    pMat <- pMat[,umi_cells>0]
+    pMat <- pMat[,umi_cells>0, drop=FALSE]
 
     num_features_cell_filter2 <- dim(pMat)[1]
     num_cells_cell_filter2 <- dim(pMat)[2]
@@ -331,7 +331,7 @@ preprocess_peak_matrix <- function( mat_file, count_file, sample_name, umi_cutof
         message_log('ReduceDimensions: peak matrix dimensions post-doublet filter: ', num_features_doublet_filter, ' x ', num_cells_doublet_filter)
     }
 
-    cDat_f <- cDat_f[match(colnames(pMat), cDat_f$cell),]
+    cDat_f <- cDat_f[match(colnames(pMat), cDat_f$cell),, drop=FALSE]
     row.names(cDat_f) <- cDat_f$cell
 
     num_rows_coldata_3 <- nrow(cDat_f)
