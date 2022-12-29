@@ -3159,11 +3159,14 @@ process makeReducedDimensionMatrixProcess {
 	script:
 	"""
     # bash watch for errors
-    set -ueo pipefail
+#    set -ueo pipefail
 
     PROCESS_BLOCK='makeReducedDimensionMatrixProcess'
     SAMPLE_NAME="${inPeakMatrixMap['sample']}"
     START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    source ${pipeline_path}/load_python_env_reqs.sh
+    source ${script_dir}/python_env/bin/activate
 
     inPeakMatrix="${inPeakMatrixMap['sample']}-peak_matrix.mtx.gz"
     inSampleName="${inPeakMatrixMap['sample']}"
@@ -3256,6 +3259,8 @@ process makeReducedDimensionMatrixProcess {
       touch "\${outBlackListRegionsFile}"
     fi
 
+    deactivate
+
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
 
     #
@@ -3302,6 +3307,7 @@ process makeReducedDimensionMatrixProcess {
 --lsi_coords_file \${outLsiCoordsFile} \
 --umap_coords_file \${outUmapCoordsFile} \
 --umap_plot_file \${outUmapPlotFile} \${doublet_predict} \${black_list_file}"
+
 	"""
 }
 

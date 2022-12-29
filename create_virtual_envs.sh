@@ -41,7 +41,7 @@ module purge
 module load modules modules-init modules-gs
 export DIR=$(dirname `readlink -f $0`)
 source $DIR/load_python_env_reqs.sh
-module load virtualenv/20.0.27
+
 
 echo 'Cleaning cache directory...'
 rm -r ~/.cache/pip
@@ -59,19 +59,24 @@ echo 'Bulding python virtualenv...'
 # export PYTHONPATH=''
 virtualenv $DIR/src/python_env
 
+if [ "$?" != 0 ]
+then
+  echo "Error: the virtualenv command returned an error."
+  exit -1
+fi
+
+if [ ! -d $DIR/src/python_env ]
+then
+  echo "Error: failed to make Python virtual environment in $DIR/src/python_env."
+  exit -1
+fi
+
 source $DIR/src/python_env/bin/activate
 
 python3 -m ensurepip
+
 pip install -r $DIR/python_requirements.txt
-
-#
-# Clone the repository.
-#
-git clone https://github.com/andrewhill157/barcodeutils.git
-
-pushd barcodeutils
-python setup.py install
-popd
+pip install scrublet
 
 deactivate
 
