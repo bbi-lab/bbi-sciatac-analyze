@@ -201,6 +201,27 @@ nextflow.enable.dsl = 1
 **     string for most of the (input/output) files. Perhaps I can define groovy
 **     variables to store these string literals: I am not certain that it can work.
 **
+** Notes on processing log files.
+**   o strategy:
+**       o  add a 'stop' flag output channel to each process that might
+**          be the last to finish in a successful run.
+**       o concatenate the 'stop' flag output channels using the Nextflow
+**         .concat() operator and use the Nextflow .last() operator to send
+**         a finished 'signal' to the log distiller processes.
+**       o add 'stop' flag output channels to the following processes
+**           process name                           'stop' output channel name
+**           makePeakMatrixProcess                  makePeakMatrixStopFlagOutChannel
+**           makeWindowMatrixProcess                makeWindowMatrixStopFlagOutChannel
+**           makePromoterMatrixProcess              makePromoterMatrixStopFlagOutChannel
+**           summarizeCellCallsProcess              summarizeCellCallsStopFlagOutChannel
+**           makeGenomeBrowserFilesProcess          makeGenomeBrowserFilesStopFlagOutChannel
+**           getBandingScoresProcess                getBandingScoresStopFlagOutChannel
+**           callMotifsProcess                      callMotifsStopFlagOutChannel
+**           makeMotifMatrixProcess                 makeMotifMatrixStopFlagOutChannel
+**           makeReducedDimensionMatrixProcess      makeReducedDimensionMatrixStopFlagOutChannel
+**           makeMergedPlotFilesProcess             makeMergedPlotFilesStopFlagOutChannel
+**           experimentDashboardProcess             experimentDashboardStopFlagOutChannel
+**
 ** Tasks:
 **   o  work on src/summarize_cell_calls.R and generate_cistopic_model.R to
 **      remove dependencies on specific genome versions
@@ -683,6 +704,100 @@ process sortPeakFileProcess {
 
 /*
 ** ================================================================================
+** Run read adapter trimming.
+** ================================================================================
+*/
+
+/*
+** Gather R1/R2 pairs of fastq filenames because
+** Trimmomatic processes read pairs using separate
+** input/output files for reads 1 and 2.
+*/
+def trimmomatic_exe="${script_dir}/Trimmomatic-0.36/trimmomatic-0.36.jar"
+def adapters_path="${script_dir}/Trimmomatic-0.36/adapters/NexteraPE-PE.fa:2:30:10:1:true"
+
+Channel
+    .fromList( runAdapterTrimmingChannelSetup( sampleLaneMap ) )
+    .set { runAdapterTrimmingInChannel }
+
+process adapterTrimmingProcess {
+  cache 'lenient'
+  errorStrategy onError
+  publishDir path: "$analyze_dir", saveAs: { qualifyFilename( it, "fastqs_trim" ) }, pattern: "*.fastq.gz", mode: 'copy'
+  publishDir path: "$analyze_dir", saveAs: { qualifyFilename( it, "fastqs_trim" ) }, pattern: "*-trimmomatic.stderr", mode: 'copy'
+
+
+  input:
+  val inAdapterTrimmingMap from runAdapterTrimmingInChannel
+
+  output:
+  file("*.fastq.gz") into adapterTrimmingOutChannel
+  file("*-trimmomatic.stderr") into fastqs_trim_stderr
+
+  script:
+  """
+  # bash watch for errors
+  set -ueo pipefail
+
+  PROCESS_BLOCK='adapterTrimmingProcess'
+  SAMPLE_NAME="${inAdapterTrimmingMap['sample']}"
+  RUN_LANE="${inAdapterTrimmingMap['lane']}"
+  START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+  mkdir -p fastqs_trim
+  #
+  # Trimmomatic command line parameters
+  #   ILLUMINACLIP: Cut adapter and other illumina-specific sequences from the read
+  #   SLIDINGWINDOW: Performs a sliding window trimming approach. It starts scanning
+  #                  at the 5' end and clips the read once the average quality
+  #                  within the window falls below a threshold.
+  #   TRAILING: Cut bases off the end of a read, if below a threshold quality.
+  #   MINLEN: Drop the read if it is below a specified length.
+  #
+  java -Xmx1G -jar $trimmomatic_exe \
+       PE \
+       -threads $task.cpus \
+       ${inAdapterTrimmingMap['fastq1']} \
+       ${inAdapterTrimmingMap['fastq2']} \
+       \${SAMPLE_NAME}-\${RUN_LANE}_R1.trimmed.fastq.gz \
+       \${SAMPLE_NAME}-\${RUN_LANE}_R1.trimmed_unpaired.fastq.gz \
+       \${SAMPLE_NAME}-\${RUN_LANE}_R2.trimmed.fastq.gz \
+       \${SAMPLE_NAME}-\${RUN_LANE}_R2.trimmed_unpaired.fastq.gz \
+       ILLUMINACLIP:${adapters_path} \
+       TRAILING:3 \
+       SLIDINGWINDOW:4:10 \
+       MINLEN:20 2> \${SAMPLE_NAME}-\${RUN_LANE}-trimmomatic.stderr
+
+  STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+  $script_dir/pipeline_logger.py \
+  -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+  -n \${SAMPLE_NAME} \
+  -x \${RUN_LANE} \
+  -p \${PROCESS_BLOCK} \
+  -v 'java -Xmx1G -jar $trimmomatic_exe -version' \
+  -s \${START_TIME} \
+  -e \${STOP_TIME} \
+  -f \${SAMPLE_NAME}-\${RUN_LANE}-trimmomatic.stderr \
+  -d ${log_dir} \
+  -c "java -Xmx1G -jar $trimmomatic_exe \
+PE \
+-threads $task.cpus \
+${inAdapterTrimmingMap['fastq1']} \
+${inAdapterTrimmingMap['fastq1']} \
+\${SAMPLE_NAME}-\${RUN_LANE}_R1.trimmed.fastq.gz \
+\${SAMPLE_NAME}-\${RUN_LANE}_R1.trimmed_unpaired.fastq.gz \
+\${SAMPLE_NAME}-\${RUN_LANE}_R2.trimmed.fastq.gz \
+\${SAMPLE_NAME}-\${RUN_LANE}_R2.trimmed_unpaired.fastq.gz \
+ILLUMINACLIP:${adapters_path} \
+TRAILING:3 \
+SLIDINGWINDOW:4:10 \
+MINLEN:20 2> \${SAMPLE_NAME}-\${RUN_LANE}-trimmomatic.stderr"
+  """
+}
+
+
+/*
+** ================================================================================
 ** Run alignments and merge resulting BAM files.
 ** ================================================================================
 */
@@ -709,9 +824,11 @@ process sortPeakFileProcess {
 **        o  sort resulting alignment files
 */
 
-Channel
-	.fromList( runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) )
-	.set { runAlignInChannel }
+adapterTrimmingOutChannel
+    .flatten()
+    .toList()
+    .flatMap { runAlignChannelSetup( it, params, argsJson, sampleLaneMap, genomesJson ) }
+    .set { runAlignInChannel }
 
 process runAlignProcess {
     memory "${alignMap['aligner_memory'].multiply(1024.0).div(task.cpus).round()}MB"
@@ -2312,6 +2429,7 @@ process makePeakMatrixProcess {
 
 	output:
 	file( "*-peak_matrix.*" ) into makePeakMatrixOutChannel
+    file( "stop_flag" ) into makePeakMatrixStopFlagOutChannel
 
 	script:
 	"""
@@ -2354,6 +2472,8 @@ process makePeakMatrixProcess {
 --intervals ${inMergedPeaks} \
 --cell_whitelist ${inCellWhitelist} \
 --matrix_output \${outPeakMatrix}"
+
+    touch stop_flag
 	"""
 }
 
@@ -2395,6 +2515,7 @@ process makeWindowMatrixProcess {
 
 	output:
 	file( "*-window_matrix.*" ) into makeWindowMatrixOutChannel
+    file( "stop_flag" ) into makeWindowMatrixStopFlagOutChannel
 
 	script:
 	"""
@@ -2437,6 +2558,8 @@ process makeWindowMatrixProcess {
 --intervals ${inWindowedIntervals} \
 --cell_whitelist ${inCellWhitelist} \
 --matrix_output \${outWindowMatrix}"
+
+    touch stop_flag
 	"""
 }
 
@@ -2478,6 +2601,7 @@ process makePromoterMatrixProcess {
     
 	output:
 	file( "*-promoter_matrix.*" ) into makePromoterMatrixOutChannel
+    file( "stop_flag" ) into makePromoterMatrixStopFlagOutChannel
 
 	script:
 	"""
@@ -2529,6 +2653,8 @@ process makePromoterMatrixProcess {
        "${script_dir}/add_gene_metadata.py --in_promoter_matrix_row_name_file promoter_matrix_rows.txt.no_metadata \
                                        --gene_metadata_file ${inGeneRegionsMap['inGeneBodiesGeneMap']} \
                                        --out_promoter_matrix_row_name_file ${inGeneRegionsMap['inPromoterMatrixRows']}"
+
+    touch stop_flag
 	"""
 }
 
@@ -2622,7 +2748,8 @@ process summarizeCellCallsProcess {
     file( "*-called_cells_summary.pdf" ) into summarizeCellCallsOutChannelCallCellsSummaryPlot
     file( "*-called_cells_summary.stats.txt" ) into summarizeCellCallsOutChannelCallCellsSummaryStats
     file( "*.png") into summarizeCellCallsOutChannelDashboardPlots
-    
+    file( "stop_flag" ) into summarizeCellCallsStopFlagOutChannel
+ 
     script:
     """
     # bash watch for errors
@@ -2697,6 +2824,8 @@ process summarizeCellCallsProcess {
 --combined_duplicate_report ${inCombinedDuplicateReport} \
 --plot \${outSummaryPlot} \
 --output_stats \${outSummaryStats} \${barnyardParams}"
+
+    touch stop_flag
     """
 }
 
@@ -2753,51 +2882,54 @@ process makeGenomeBrowserFilesProcess {
     file( "*.tss_file.sorted.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelTssRegionsBB
     file( "*-merged_peaks.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelMergedPeaksBB
     file( "*-transposition_sites.gb.bb" ) into makeGenomeBrowserFilesProcessOutChannelTranspositionSitesBB
+    file( "stop_flag" ) into makeGenomeBrowserFilesStopFlagOutChannel
 
     when:
 		params.make_genome_browser_files
 
     script:
-    """
-    # bash watch for errors
-    set -ueo pipefail
+      """
+      # bash watch for errors
+      set -ueo pipefail
+  
+      PROCESS_BLOCK='makeGenomeBrowserFilesProcess'
+      SAMPLE_NAME="${inTssRegionsMap['sample']}"
+      START_TIME=`date '+%Y%m%d:%H%M%S'`
+  
+      outTssGb="${inTssRegionsMap['sample']}-${inTssRegionsMap['genome']}.tss_file.sorted.gb"
+      outMergedPeaksGb="${inMergedPeaksMap['sample']}-merged_peaks.gb"
+      outTranspositionSitesGb="${inTranspositionSitesMap['sample']}-transposition_sites.gb"
+      
+      awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' $inChromosomeSizes > chromosome_size.txt.edited
+  
+      zcat $inTssRegions | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outTssGb}.bed
+      bedToBigBed -tab \${outTssGb}.bed chromosome_size.txt.edited \${outTssGb}.bb
+      bgzip \${outTssGb}.bed
+      tabix -p bed \${outTssGb}.bed.gz
+  
+      cat $inMergedPeaks | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outMergedPeaksGb}.bed
+      bedToBigBed -tab \${outMergedPeaksGb}.bed chromosome_size.txt.edited \${outMergedPeaksGb}.bb
+      
+      zcat $inTranspositionSites | $script_dir/trim_bed_stream.py $inChromosomeSizes | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outTranspositionSitesGb}.bed
+      bedToBigBed -tab \${outTranspositionSitesGb}.bed chromosome_size.txt.edited \${outTranspositionSitesGb}.bb
+      bgzip \${outTranspositionSitesGb}.bed
+      tabix -p bed \${outTranspositionSitesGb}.bed.gz
+  
+      STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+  
+      #
+      # Logging block.
+      #
+      $script_dir/pipeline_logger.py \
+      -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+      -n \${SAMPLE_NAME} \
+      -p \${PROCESS_BLOCK} \
+      -v 'awk --version | head -1' 'zcat --version | head -1' 'bedToBigBed 2>&1 > /dev/null | head -1' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'zcat --version | head -1' \
+      -s \${START_TIME} \
+      -e \${STOP_TIME} \
+      -d ${log_dir}
 
-    PROCESS_BLOCK='makeGenomeBrowserFilesProcess'
-    SAMPLE_NAME="${inTssRegionsMap['sample']}"
-    START_TIME=`date '+%Y%m%d:%H%M%S'`
-
-    outTssGb="${inTssRegionsMap['sample']}-${inTssRegionsMap['genome']}.tss_file.sorted.gb"
-    outMergedPeaksGb="${inMergedPeaksMap['sample']}-merged_peaks.gb"
-    outTranspositionSitesGb="${inTranspositionSitesMap['sample']}-transposition_sites.gb"
-    
-    awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' $inChromosomeSizes > chromosome_size.txt.edited
-
-    zcat $inTssRegions | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outTssGb}.bed
-    bedToBigBed -tab \${outTssGb}.bed chromosome_size.txt.edited \${outTssGb}.bb
-    bgzip \${outTssGb}.bed
-    tabix -p bed \${outTssGb}.bed.gz
-
-    cat $inMergedPeaks | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outMergedPeaksGb}.bed
-    bedToBigBed -tab \${outMergedPeaksGb}.bed chromosome_size.txt.edited \${outMergedPeaksGb}.bb
-    
-    zcat $inTranspositionSites | $script_dir/trim_bed_stream.py $inChromosomeSizes | awk 'BEGIN{OFS="\t"}{\$1="chr" \$1}1' | LC_COLLATE=C sort -k 1,1 -k2,2n > \${outTranspositionSitesGb}.bed
-    bedToBigBed -tab \${outTranspositionSitesGb}.bed chromosome_size.txt.edited \${outTranspositionSitesGb}.bb
-    bgzip \${outTranspositionSitesGb}.bed
-    tabix -p bed \${outTranspositionSitesGb}.bed.gz
-
-    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
-
-    #
-    # Logging block.
-    #
-    $script_dir/pipeline_logger.py \
-    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
-    -n \${SAMPLE_NAME} \
-    -p \${PROCESS_BLOCK} \
-    -v 'awk --version | head -1' 'zcat --version | head -1' 'bedToBigBed 2>&1 > /dev/null | head -1' 'tabix 2>&1 > /dev/null | head -3 | tail -1' 'zcat --version | head -1' \
-    -s \${START_TIME} \
-    -e \${STOP_TIME} \
-    -d ${log_dir}
+    touch stop_flag
     """
 }
 
@@ -2843,50 +2975,53 @@ process getBandingScoresProcess {
     output:
     file( "*-per_cell_insert_sizes.txt" ) into getBandingScoresOutChannelCellInsertSizes
     file( "*-banding_scores.txt" ) into getBandingScoresOutChannelBandingScores
+    file( "stop_flag" ) into getBandingScoresStopFlagOutChannel
 
 	when:
 		params.calculate_banding_scores
 
     script:
-    """
-    # bash watch for errors
-    set -ueo pipefail
+      """
+      # bash watch for errors
+      set -ueo pipefail
+  
+      PROCESS_BLOCK='getBandingScoresProcess'
+      SAMPLE_NAME="${inFragmentsMap['sample']}"
+      START_TIME=`date '+%Y%m%d:%H%M%S'`
+  
+      # output filenames
+      source ${pipeline_path}/load_python_env_reqs.sh
+      source ${script_dir}/python_env/bin/activate
+      
+      outPerCellInsertSizesFile="${inFragmentsMap['sample']}-per_cell_insert_sizes.txt"
+      outBandingScoresFile="${inFragmentsMap['sample']}-banding_scores.txt"
+      
+      python ${script_dir}/get_insert_size_distribution_per_cell.py ${inFragments} \${outPerCellInsertSizesFile} --barcodes ${inCellWhitelist}
+      
+      Rscript ${script_dir}/calculate_nucleosome_banding_scores.R \${outPerCellInsertSizesFile} \${outBandingScoresFile} --barcodes ${inCellWhitelist}
+  
+      deactivate
+  
+      STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+  
+      #
+      # Logging block.
+      #
+      $script_dir/pipeline_logger.py \
+      -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+      -n \${SAMPLE_NAME} \
+      -p \${PROCESS_BLOCK} \
+      -v 'python3 --version' 'R --version | head -1' \
+      -s \${START_TIME} \
+      -e \${STOP_TIME} \
+      -d ${log_dir} \
+      -c "outPerCellInsertSizesFile=\"${inFragmentsMap['sample']}-per_cell_insert_sizes.txt\"" \
+         "outBandingScoresFile=\"${inFragmentsMap['sample']}-banding_scores.txt\"" \
+         "python ${script_dir}/get_insert_size_distribution_per_cell.py ${inFragments} \${outPerCellInsertSizesFile} --barcodes ${inCellWhitelist}" \
+         "Rscript ${script_dir}/calculate_nucleosome_banding_scores.R \${outPerCellInsertSizesFile} \${outBandingScoresFile} --barcodes ${inCellWhitelist}"
 
-    PROCESS_BLOCK='getBandingScoresProcess'
-    SAMPLE_NAME="${inFragmentsMap['sample']}"
-    START_TIME=`date '+%Y%m%d:%H%M%S'`
-
-    # output filenames
-    source ${pipeline_path}/load_python_env_reqs.sh
-    source ${script_dir}/python_env/bin/activate
-    
-    outPerCellInsertSizesFile="${inFragmentsMap['sample']}-per_cell_insert_sizes.txt"
-    outBandingScoresFile="${inFragmentsMap['sample']}-banding_scores.txt"
-    
-    python ${script_dir}/get_insert_size_distribution_per_cell.py ${inFragments} \${outPerCellInsertSizesFile} --barcodes ${inCellWhitelist}
-    
-    Rscript ${script_dir}/calculate_nucleosome_banding_scores.R \${outPerCellInsertSizesFile} \${outBandingScoresFile} --barcodes ${inCellWhitelist}
-
-    deactivate
-
-    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
-
-    #
-    # Logging block.
-    #
-    $script_dir/pipeline_logger.py \
-    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
-    -n \${SAMPLE_NAME} \
-    -p \${PROCESS_BLOCK} \
-    -v 'python3 --version' 'R --version | head -1' \
-    -s \${START_TIME} \
-    -e \${STOP_TIME} \
-    -d ${log_dir} \
-    -c "outPerCellInsertSizesFile=\"${inFragmentsMap['sample']}-per_cell_insert_sizes.txt\"" \
-       "outBandingScoresFile=\"${inFragmentsMap['sample']}-banding_scores.txt\"" \
-       "python ${script_dir}/get_insert_size_distribution_per_cell.py ${inFragments} \${outPerCellInsertSizesFile} --barcodes ${inCellWhitelist}" \
-       "Rscript ${script_dir}/calculate_nucleosome_banding_scores.R \${outPerCellInsertSizesFile} \${outBandingScoresFile} --barcodes ${inCellWhitelist}"
-    """
+      touch stop_flag
+      """
 }
 
 
@@ -2945,7 +3080,8 @@ process callMotifsProcess {
 
 	output:
 	file( "*-peak_calls.bb" ) into callMotifsOutChannelPeakCalls
-	
+	file( "stop_flag" ) into callMotifsStopFlagOutChannel
+
 	when:
 		inMergedPeaksMap['fasta'] != null && inMergedPeaksMap['motifs'] != null
 		
@@ -2986,6 +3122,8 @@ process callMotifsProcess {
     -c "gc_bin_padded=`echo ${inMergedPeaksMap['gc_bin']} | awk '{printf("%02d",\\\$1+1)}'`" \
        "outGcBinned=\"${inMergedPeaksMap['sample']}-gc_\${gc_bin_padded}-peak_calls.bb\"" \
        "python ${script_dir}/call_peak_motifs.py ${inMergedPeaksMap['fasta']} ${inMergedPeaks} ${inMergedPeaksMap['motifs']} \${outGcBinned} --gc_bin ${inMergedPeaksMap['gc_bin']} --pwm_threshold ${task.ext.pwm_threshold}"
+
+    touch stop_flag
 	"""
 }
 
@@ -3029,6 +3167,7 @@ process makeMotifMatrixProcess {
 
 	output:
 	file( "*-peak_motif_matrix.*" ) into makeMotifMatrixOutChannel
+    file( "stop_flag" ) into makeMotifMatrixStopFlagOutChannel
 
 	when:
 		inPeakCallsMap['fasta'] != null && inPeakCallsMap['motifs'] != null
@@ -3076,6 +3215,8 @@ process makeMotifMatrixProcess {
 --peaks ${inMergedPeaks} \
 --motifs ${inPeakCallsMap['motifs']} \
 --peak_tf_matrix \${outPeakTfMatrix}"
+
+    touch stop_flag
 	"""
 }
 
@@ -3155,6 +3296,7 @@ process makeReducedDimensionMatrixProcess {
     file("*-scrublet_table.csv") into makeReducedDimensionMatrixOutChannelScrubletTable
     file("*-blacklist_regions_file.log") into makeReducedDimensionMatrixOutChannelBlackListRegionsFile
     file("*-reduce_dimensions.log") into makeReducedDimensionMatrixOutChannelReducedDimensionsLogFile
+    file("stop_flag") into makeReducedDimensionMatrixStopFlagOutChannel
 
 	script:
 	"""
@@ -3308,6 +3450,7 @@ process makeReducedDimensionMatrixProcess {
 --umap_coords_file \${outUmapCoordsFile} \
 --umap_plot_file \${outUmapPlotFile} \${doublet_predict} \${black_list_file}"
 
+    touch stop_flag
 	"""
 }
 
@@ -3333,6 +3476,7 @@ process experimentDashboardProcess {
 
 	output:
 	file( "run_data.js" ) into experimentDashboardProcessOutChannelRunData
+    file( "stop_flag" ) into experimentDashboardStopFlagOutChannel
 
 	script:
 	"""
@@ -3365,6 +3509,8 @@ process experimentDashboardProcess {
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
+
+    touch stop_flag
 	"""
 }
 
@@ -3400,6 +3546,7 @@ process makeMergedPlotFilesProcess {
     file( "merged.called_cells_summary.stats.csv" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryTsv
     file( "merged.called_cells_summary.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryPdf
     file( "merged.umap_plots.pdf" ) into makeMergedPlotFilesProcessOutChannelMergedUmapPlots
+    file( "stop_flag" ) into makeMergedPlotFilesStopFlagOutChannel
 
     script:
     """
@@ -3438,8 +3585,73 @@ process makeMergedPlotFilesProcess {
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir}
+
+    touch stop_flag
     """
 }
+
+
+/*
+** ================================================================================
+** Run log distiller after the last process finishes.
+** ================================================================================
+*/
+makePeakMatrixStopFlagOutChannel
+  .concat( makeWindowMatrixStopFlagOutChannel,
+           makePromoterMatrixStopFlagOutChannel,
+           summarizeCellCallsStopFlagOutChannel,
+           makeGenomeBrowserFilesStopFlagOutChannel,
+           getBandingScoresStopFlagOutChannel,
+           callMotifsStopFlagOutChannel,
+           makeMotifMatrixStopFlagOutChannel,
+           makeReducedDimensionMatrixStopFlagOutChannel,
+           makeMergedPlotFilesStopFlagOutChannel,
+           experimentDashboardStopFlagOutChannel )
+  .last()
+  .into { logDistillFlagInputChannelCopy01;
+          logDistillFlagInputChannelCopy02 }
+
+process logDistillAllProcess {
+  cache 'lenient'
+  errorStrategy onError
+
+  input:
+    file log_file from logDistillFlagInputChannelCopy01
+
+
+  script:
+  """
+  set -ueo pipefail
+
+  ${script_dir}/log_distiller.py -p atac_demux -d ${log_dir} -o ${log_dir}/log.all_samples.txt
+  ${script_dir}/log_distiller.py -p atac_demux -d ${log_dir} -s lane pipeline -o ${log_dir}/log.lane.txt
+  """
+}
+
+
+Channel
+  .fromList( sampleSortedNames )
+  .set { logDistillSamplesInputChannel }
+
+/*
+** Distill individual sample logs.
+*/
+process logDistillSampleProcess {
+  cache 'lenient'
+  errorStrategy onError
+
+  input:
+    file log_file from logDistillFlagInputChannelCopy01
+    val sample_name from logDistillSamplesInputChannel
+
+  script:
+  """
+  set -ueo pipefail
+
+  ${script_dir}/log_distiller.py -p atac_demux -d ${log_dir} -s ${sample_name} pipeline -o ${log_dir}/log.${sample_name}.txt
+  """
+}
+
 
 /*
 ** Template
@@ -3460,54 +3672,6 @@ process template {
 	"""
 }
 */
-
-
-/*
-** ================================================================================
-** Run log distiller when the pipeline finishes.
-** ================================================================================
-*/
-addShutdownHook({
-
-    /*
-    ** Add sample sheet information.
-    */
-    def samples = []
-
-    sampleSortedNames.each { aSample ->
-        samples.add( aSample )
-    }
-
-    def proc
-    def command = new StringBuilder()
-
-    command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -o ${log_dir}/log.all_samples.txt")
-    proc = command.toString().execute()
-    command.setLength(0)
-    proc = null
-
-    command.setLength(0)
-    command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s genome pipeline -o ${log_dir}/log.genome.txt")
-    proc = command.toString().execute()
-    command.setLength(0)
-    proc = null
-
-    command.setLength(0)
-    command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s peaks pipeline -o ${log_dir}/log.peaks.txt")
-    proc = command.toString().execute()
-    command.setLength(0)
-    proc = null
-
-    samples.each { aSample ->
-        command.setLength(0)
-        command.append("${script_dir}/log_distiller.py -p atac_analyze -d ${log_dir} -s ${aSample} pipeline -o ${log_dir}/log.${aSample}.txt")
-        proc = command.toString().execute()
-        command.setLength(0)
-        proc = null
-    }
-    samples = null
-})
-
 
 
 /*
@@ -3920,7 +4084,7 @@ def checkPeakFiles( samplePeakFileMap ) {
 ** Notes:
 **   o  each combination of sample and lane has two fastq files
 **      with names with the form
-**         <sample_name>-RUN<run_number>_L<lane_number>_R<read_number>.trimmed.fastq.gz
+**         <sample_name>-RUN<run_number>_L<lane_number>_R<read_number>.fastq.gz
 **      for example,
 **         sample1-RUN001_L001_R1.trimmed.fastq.gz
 **         sample1-RUN001_L001_R2.trimmed.fastq.gz
@@ -3933,7 +4097,7 @@ def checkFastqs( params, sampleLaneMap ) {
 	samples.each { aSample ->
 		def lanes = sampleLaneMap[aSample]
 		lanes.each { aLane ->
-			fileName = dirName + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+			fileName = dirName + '/' + aSample + '/fastqs_barcode/' + String.format( '%s-%s_R1.fastq.gz', aSample, aLane )
 			fileHandle = new File( fileName )
 			if( !fileHandle.exists() ) {
 				printErr( "Error: unable to find fastq file ${fileName}" )
@@ -3943,7 +4107,7 @@ def checkFastqs( params, sampleLaneMap ) {
 				printErr( "Error: unable to read fastq file ${fileName}" )
 				System.exit( -1 )
 			}
-			fileName = dirName + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+			fileName = dirName + '/' + aSample + '/fastqs_barcode/' + String.format( '%s-%s_R2.fastq.gz', aSample, aLane )
 			fileHandle = new File( fileName )
 			if( !fileHandle.exists() ) {
 				printErr( "Error: unable to find fastq file ${fileName}" )
@@ -4229,6 +4393,32 @@ def getSortedSampleNames( sampleLaneMap ) {
 
 /*
 ** ================================================================================
+** Run adapter trimming channel setup functions.
+** ================================================================================
+*/
+def runAdapterTrimmingChannelSetup( sampleLaneMap ) {
+    def demuxDir = demux_dir
+    def adapterTrimmingMaps = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        lanes.each { aLane ->
+            def fastq1         = demuxDir + '/' + aSample + '/fastqs_barcode/' + String.format( '%s-%s_R1.fastq.gz', aSample, aLane )
+            def fastq2         = demuxDir + '/' + aSample + '/fastqs_barcode/' + String.format( '%s-%s_R2.fastq.gz', aSample, aLane )
+
+            adapterTrimmingMaps.add( [ 'sample': aSample,
+                                       'lane': aLane,
+                                       'fastq1': fastq1,
+                                       'fastq2': fastq2 ] )
+        }
+    }
+
+    return( adapterTrimmingMaps )
+}
+
+
+/*
+** ================================================================================
 ** Run alignments channel setup functions.
 ** ================================================================================
 */
@@ -4253,19 +4443,58 @@ def getSortedSampleNames( sampleLaneMap ) {
 **                        (This value is divided by the number of requested cpus.)
 **        bamfile         path of output bam file
 */
-def runAlignChannelSetup( params, argsJson, sampleLaneMap, genomesJson ) {
-	def demuxDir = demux_dir
+def runAlignChannelSetup( inPaths, params, argsJson, sampleLaneMap, genomesJson ) {
+    /*
+    ** Check for expected BAM files.
+    */
+    def filesExpected = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        def fileName
+        lanes.each { aLane ->
+            fileName = String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+            filesExpected.add( fileName )
+            fileName = String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+            filesExpected.add( fileName )
+        }
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Gather input trimmed fastq files (paths).
+    ** Store them in a map of lists keyed by sample name.
+    */
+    def fileTrimmedFastqMap = [:]
+    inPaths.each { aPath ->
+        def fileName = aPath.getFileName().toString()
+        fileTrimmedFastqMap[fileName] = aPath
+    }
+
 	def seed = ''
 	if( params.bowtie_seed != null ) {
 	   seed = "--seed ${params.bowtie_seed}"
 	}
 	def alignMaps = []
-	def samples = sampleLaneMap.keySet()
 	samples.each { aSample ->
 		def lanes = sampleLaneMap[aSample]
 		lanes.each { aLane ->
-			def fastq1         = demuxDir + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
-			def fastq2         = demuxDir + '/' + aSample + '/fastqs_trim/' + String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+
+			def fastqName1     = String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+			def fastqName2     = String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+
+            def fastq1         = fileTrimmedFastqMap[fastqName1]
+            def fastq2         = fileTrimmedFastqMap[fastqName2]
+
 			def theRun         = aLane.split( '_' )[0]
 			def genome         = argsJson[theRun]['genomes'][aSample]
 			def genome_index   = genomesJson[genome]['bowtie_index']
