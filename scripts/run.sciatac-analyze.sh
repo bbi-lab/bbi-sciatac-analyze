@@ -15,8 +15,11 @@
 #
 # Nextflow executable and pipeline script locations.
 #
-NEXTFLOW="<path_to_nextflow_program>"
-NF_MAIN="<path_to_bbi-sciatac-analyze_repository/main.nf"
+#NEXTFLOW="<path_to_nextflow_program>"
+#NF_MAIN="<path_to_bbi-sciatac-analyze_repository/main.nf"
+
+NEXTFLOW="$HOME/bin/nextflow"
+NF_MAIN="$HOME/git/bbi-sciatac-analyze/main.nf"
 
 #
 # Current date and time.
