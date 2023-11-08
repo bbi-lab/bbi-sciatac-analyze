@@ -1087,8 +1087,14 @@ process mergeMitoBamsProcess {
 
     outMitoBam="${inMergeMitoBamMap['sample']}-merged.mito.bam"
    
-    sambamba merge --nthreads ${task.cpus} \${outMitoBam} ${inMitoBams}
-    samtools index \${outMitoBam}
+    # sambamba merge --nthreads ${task.cpus} \${outMitoBam} ${inMitoBams}
+    # samtools index \${outMitoBam}
+    if [ ${inMergeMitoBamMap['numBamFiles']} -gt 1 ]
+    then
+        sambamba merge --nthreads ${task.cpus} \${outMitoBam} ${inMitoBams}
+    else
+        cp ${inMitoBams} \${outMitoBam}
+    fi
 
     mkdir -p ${analyze_dir}/${inMergeMitoBamMap['sample']}/genome_browser
     pushd ${analyze_dir}/${inMergeMitoBamMap['sample']}/genome_browser
@@ -4662,7 +4668,8 @@ def mergeMitoBamChannelSetup( inPaths, sampleLaneMap ) {
     */
     def outTuples = []
     samples.each { aSample ->
-        def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample ] )
+        def numBamFiles = sampleLaneBamMap[aSample].size()
+        def tuple = new Tuple( sampleLaneBamMap[aSample], [ 'sample': aSample, 'numBamFiles': numBamFiles ] )
         outTuples.add( tuple )
     }
    
