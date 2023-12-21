@@ -3532,10 +3532,12 @@ summarizeCellCallsOutChannelCallCellsSummaryStatsCopy02
     .map { makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( it, sampleSortedNames, sampleGenomeMap ) }
     .set { makeMergedPlotFilesProcessInChannelCallCellsSummaryStats }
 
+/*
 makeReducedDimensionMatrixOutChannelUmapPlot
     .toList()
     .map { makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( it, sampleSortedNames, sampleGenomeMap ) }
     .set { makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots }
+*/
 
 process makeMergedPlotFilesProcess {
     cache 'lenient'
@@ -3546,7 +3548,7 @@ process makeMergedPlotFilesProcess {
 
     input:
     file( "*") from makeMergedPlotFilesProcessInChannelCallCellsSummaryStats
-    file( "*-umap_plots.pdf") from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
+//    file( "*-umap_plots.pdf") from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
 
     output:
     file( "merged.called_cells_summary.stats.csv" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryTsv
@@ -7053,9 +7055,11 @@ def makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( inPaths, sample
 }
 
 
+/*
 def makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( inPaths, sampleSortedNames, sampleGenomeMap ) {
     return( inPaths )
 }
+*/
 
 
 

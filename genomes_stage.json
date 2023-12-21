@@ -11,6 +11,18 @@
         "macs_genome": "4.57e9",
         "aligner_memory": 16
     },
+    "fishbowl": {
+        "name": "fishbowl",
+        "barnyard": true,
+        "chromosome_sizes": "/net/trapnell/vol1/home/acmullen/sciPlexATAC/fishbowlGenomeGen/fishbowl_chromosome_sizes.txt",
+        "whitelist_regions": "/net/trapnell/vol1/home/acmullen/sciPlexATAC/fishbowlGenomeGen/fishbowl_whitelist_regions.bed",
+        "whitelist_with_mt_regions": "/net/trapnell/vol1/home/acmullen/sciPlexATAC/fishbowlGenomeGen/fishbowl_whitelist_with_mt_regions.bed",
+        "tss": "/net/trapnell/vol1/home/acmullen/sciPlexATAC/fishbowlGenomeGen/Fishbowltss.bed.gz",
+        "gene_bodies_gene_map": "/net/trapnell/vol1/home/acmullen/sciPlexATAC/fishbowlGenomeGen/Fishbowl_gene_bodies_gene_map.txt",
+        "bowtie_index": "/net/trapnell/vol1/home/acmullen/sciPlexATAC/fishbowlGenomeGen/fishbowl",
+        "macs_genome": "4.57e9",
+        "aligner_memory": 16
+    },    
     "barnyard_gencode": {
         "name": "barnyard_gencode",
         "barnyard": true,
