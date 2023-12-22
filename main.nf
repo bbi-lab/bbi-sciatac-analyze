@@ -358,6 +358,7 @@ demux_dir = output_dir + '/demux_out'
 analyze_dir = output_dir + '/analyze_out'
 log_dir = output_dir + '/analyze_log_dir'
 tmp_dir = output_dir + '/tmp'
+input_file_dir = output_dir + '/input_files'
 
 /*
 ** Check that required directories exist or can be made.
@@ -463,6 +464,11 @@ checkPeakFiles( samplePeakFileMap )
 */
 checkFastqs( params, sampleLaneJsonMap )
 
+/*
+** Copy hash read file, if used.
+** return( new Tuple( sciplex, targetPath.normalize().toString() ) )
+*/
+def (Boolean sciplex_flag, String hash_file_path) = copyHashReadFile( argsJson )
 
 /*
 ** Write processing args.json file(s).
@@ -796,6 +802,54 @@ MINLEN:20 2> \${SAMPLE_NAME}-\${RUN_LANE}-trimmomatic.stderr"
 }
 
 
+adapterTrimmingOutChannel
+.into {
+  adapterTrimmingOutChannelCopy01;
+  adapterTrimmingOutChannelCopy02 }
+
+
+
+
+/*
+** ================================================================================
+** Run hash read filter.
+** ================================================================================
+*/
+
+/*
+** Run hash read filter.
+** Notes:
+*/
+adapterTrimmingOutChannelCopy01
+    .flatten()
+    .toList()
+    .flatMap { runHashReadFilterChannelSetup( it, params, argsJson, sampleLaneMap ) }
+    .set { runHashReadFilterInChannel }
+
+process runHashReadFilterProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*_L[0-9][0-9][0-9].bam", mode: 'copy'
+
+    input:
+    val hashReadFilterMap from runHashReadFilterInChannel
+
+    output:
+    file( "*" ) into runHashReadFilterOutChannel
+
+    when:
+        sciplex_flag
+
+    script:
+    """
+    # bash watch for errors
+    set -ueo pipefail
+
+    echo $hash_file_path > hash_file_path.txt
+    """
+}
+
+
 /*
 ** ================================================================================
 ** Run alignments and merge resulting BAM files.
@@ -824,7 +878,7 @@ MINLEN:20 2> \${SAMPLE_NAME}-\${RUN_LANE}-trimmomatic.stderr"
 **        o  sort resulting alignment files
 */
 
-adapterTrimmingOutChannel
+adapterTrimmingOutChannelCopy02
     .flatten()
     .toList()
     .flatMap { runAlignChannelSetup( it, params, argsJson, sampleLaneMap, genomesJson ) }
@@ -4131,6 +4185,42 @@ def checkFastqs( params, sampleLaneMap ) {
 
 
 /*
+** Copy the hash read file, if this is a sciPlex experiment.
+** Notes:
+**   o  copy the hash read file to <run_name>/input_files/*
+**   o  assumes that there is only one hash read file
+*/
+def copyHashReadFile( argsJson ) {
+    def sciplex_flag = false
+    def runs = argsJson.keySet()
+    runs.each { aRun ->
+        if( argsJson[aRun].containsKey( 'hash_file' ) ) {
+            hash_file = argsJson[aRun]['hash_file']
+            sciplex_flag = true
+        }
+    }
+
+    if( sciplex_flag ) {
+      def index = hash_file.lastIndexOf(File.separator)
+      def fileName = hash_file.substring(index+1)
+
+      def file = new File(input_file_dir)
+      file.mkdir()
+
+      def targetFile = input_file_dir + '/' + 'hash_indexes.txt'
+      def targetPath = new java.io.File(targetFile).toPath()
+      java.nio.file.Files.copy(
+          new java.io.File(hash_file).toPath(),
+          targetPath,
+          java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+          java.nio.file.StandardCopyOption.COPY_ATTRIBUTES );
+      return( new Tuple( sciplex_flag, targetPath.normalize().toString() ) )
+    }
+    return( new Tuple( false, '') )
+}
+
+
+/*
 ** Get sample names from demux args.json file and return in a list.
 */
 def getArgsJsonSamples( args_json ) {
@@ -4422,6 +4512,70 @@ def runAdapterTrimmingChannelSetup( sampleLaneMap ) {
     }
 
     return( adapterTrimmingMaps )
+}
+
+
+/*
+** ================================================================================
+** Run hash read filter setup functions.
+** ================================================================================
+*/
+def runHashReadFilterChannelSetup( inPaths, params, argsJson, sampleLaneMap ) {
+    /*
+    ** Check for expected BAM files.
+    */
+    def filesExpected = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        def fileName
+        lanes.each { aLane ->
+            fileName = String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+            filesExpected.add( fileName )
+            fileName = String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+            filesExpected.add( fileName )
+        }
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Gather input trimmed fastq files (paths).
+    ** Store them in a map of lists keyed by sample name.
+    */
+    def fileTrimmedFastqMap = [:]
+    inPaths.each { aPath ->
+        def fileName = aPath.getFileName().toString()
+        fileTrimmedFastqMap[fileName] = aPath
+    }
+
+    def hashReadFilterMaps = []
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        lanes.each { aLane ->
+
+            def fastqName1     = String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+            def fastqName2     = String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+
+            def fastq1         = fileTrimmedFastqMap[fastqName1]
+            def fastq2         = fileTrimmedFastqMap[fastqName2]
+
+            hashReadFilterMaps.add( [ 'sample': aSample,
+                                      'lane': aLane,
+                                      'fastq1': fastq1,
+                                      'fastq2': fastq2] )
+        }
+    }
+
+    return( hashReadFilterMaps )
 }
 
 
