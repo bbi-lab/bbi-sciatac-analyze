@@ -845,7 +845,7 @@ process runHashReadFilterProcess {
     # bash watch for errors
     set -ueo pipefail
 
-    echo $hash_file_path > hash_file_path.txt
+    echo $hash_file_path > /net/gs/vol1/home/bge/hash_file_path.txt
     """
 }
 
@@ -4194,8 +4194,8 @@ def copyHashReadFile( argsJson ) {
     def sciplex_flag = false
     def runs = argsJson.keySet()
     runs.each { aRun ->
-        if( argsJson[aRun].containsKey( 'hash_file' ) ) {
-            hash_file = argsJson[aRun]['hash_file']
+        if( argsJson[aRun]['sample_data'].containsKey( 'hash_file' ) ) {
+            hash_file = argsJson[aRun]['sample_data']['hash_file']
             sciplex_flag = true
         }
     }
