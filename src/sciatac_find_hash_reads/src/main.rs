@@ -49,17 +49,19 @@ use std::io::Write;
 fn get_hash_seq(file_path: String) -> Result<std::collections::HashMap<String, (String, String)>, std::io::Error> {
   let fp = fs::File::open(file_path)?;
   let bfr = io::BufReader::new(fp);
+
   let mut line: String;
+  let mut toks: Vec<&str>;
   let mut hash_map = std::collections::HashMap::new();
+
   for line_result in bfr.lines() {
      line = line_result?;
-     let toks = line.split_whitespace();
-     let collection: Vec<&str> = toks.collect();
-     if(collection.len() == 2) {
-       hash_map.insert(collection[1].to_owned(), (collection[0].to_owned(), "0".to_owned()));
+     toks = line.split_whitespace().collect();
+     if(toks.len() == 2) {
+       hash_map.insert(toks[1].to_owned(), (toks[0].to_owned(), "0".to_owned()));
      }
      else {
-       hash_map.insert(collection[1].to_owned(), (collection[0].to_owned(), collection[2].to_owned()));
+       hash_map.insert(toks[1].to_owned(), (toks[0].to_owned(), toks[2].to_owned()));
      }
   }
   Ok(hash_map)
@@ -174,6 +176,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut record_r1 = fastq::Record::new();
   let mut record_r2 = fastq::Record::new();
 
+  let mut subseq_r2: &str;
+
   let out_file = fs::File::create(tsv_out).expect("error: bad status: fs::File::Create");
   let mut buf_out_file = io::BufWriter::with_capacity(1024*1024, out_file);
 
@@ -203,8 +207,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ** in the hash table. If it hits, write record to file.
     ** If there aren't at least ten bases, skip the read.
     */
+
     if let Some(subslice_r2) = record_r2.seq().get(0..10) {
-      let subseq_r2 = std::str::from_utf8(subslice_r2).expect("error: main: from_utf8 failed");
+      subseq_r2 = std::str::from_utf8(subslice_r2).expect("error: main: from_utf8 failed");
       if let Some(hash_value) = hash_map.get(subseq_r2) {
         write_hash_record(&record_r1, hash_value, &mut buf_out_file)?;
       }

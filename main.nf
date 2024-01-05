@@ -289,6 +289,7 @@ def timeNow = new Date()
 */
 pipeline_path="$workflow.projectDir"
 script_dir="${pipeline_path}/src"
+bin_dir="${pipeline_path}/bin"
 
 /*
 ** Set errorStrategy directive policy.
@@ -808,8 +809,6 @@ adapterTrimmingOutChannel
   adapterTrimmingOutChannelCopy02 }
 
 
-
-
 /*
 ** ================================================================================
 ** Run hash read filter.
@@ -829,13 +828,13 @@ adapterTrimmingOutChannelCopy01
 process runHashReadFilterProcess {
     cache 'lenient'
     errorStrategy onError
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*_L[0-9][0-9][0-9].bam", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*.hash_reads.tsv", mode: 'copy'
 
     input:
     val hashReadFilterMap from runHashReadFilterInChannel
 
     output:
-    file( "*" ) into runHashReadFilterOutChannel
+    file( "*.hash_reads.tsv" ) into runHashReadFilterOutChannel
 
     when:
         sciplex_flag
@@ -845,7 +844,56 @@ process runHashReadFilterProcess {
     # bash watch for errors
     set -ueo pipefail
 
-    echo $hash_file_path > /net/gs/vol1/home/bge/hash_file_path.txt
+    outHashReadsTsv="${hashReadFilterMap['sample']}-${hashReadFilterMap['lane']}.hash_reads.tsv"
+
+    ${bin_dir}/sciatac_find_hash_reads -1 ${hashReadFilterMap['fastq1']} -2 ${hashReadFilterMap['fastq2']} -h ${hash_file_path} -o \${outHashReadsTsv}
+    """
+}
+
+
+/*
+** Aggregate and further process hash read output.
+*/
+runHashReadFilterOutChannel
+    .toList()
+    .flatMap { runHashReadAggregationChannelSetup( it, params, argsJson, sampleLaneMap ) }
+    .set { runHashReadAggregationInChannel }
+
+/*
+** Aggregate hash reads results.
+*/
+process runHashReadAggregationProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-aggregate.hash_reads.tsv", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashTable.out", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashReads.per.cell", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashUMIs.per.cell", mode: 'copy'
+
+    input:
+    set file( inHashReadsTsvs ), hashReadAggregationMap from runHashReadAggregationInChannel
+
+    output:
+    file( "*-aggregate.hash_reads.tsv, *-hashTable.out, *-hashReads.per.cell, hashUMIs.per.cell" ) into runHashReadAggregationOutChannel
+
+    when:
+        sciplex_flag
+
+    script:
+    """
+    # bash watch for errors
+    set -ueo pipefail
+
+    outHashReadsTsvAggregate="${hashReadAggregationMap['sample']}-aggregate.hash_reads.tsv"
+
+    cat ${inHashReadsTsvs} > \${outHashReadsTsvAggregate}
+
+    # makes files
+    #   <sample_name>-hashTable.out
+    #   <sample_name>-hashReads.per.cell
+    #   <sample_name>-hashUMIs.per.cell
+    $bin_dir/sciatac_process_hash_reads -i \${outHashReadsTsvAggregate} -s ${inHashReadsTsvs['sample']}
+
     """
 }
 
@@ -4576,6 +4624,63 @@ def runHashReadFilterChannelSetup( inPaths, params, argsJson, sampleLaneMap ) {
     }
 
     return( hashReadFilterMaps )
+}
+
+
+/*
+** ================================================================================
+** Run hash read aggregation setup functions.
+** ================================================================================
+*/
+def runHashReadAggregationChannelSetup( inPaths, params, argsJson, sampleLaneMap ) {
+    /*
+    ** Check for expected BAM files.
+    */
+    def filesExpected = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        def fileName
+        lanes.each { aLane ->
+            fileName = String.format( '%s-%s.hash_reads.tsv', aSample, aLane )
+            filesExpected.add( fileName )
+        }
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Gather input hash read tsv files (paths).
+    ** Store them in a map of lists keyed by sample name.
+    */
+    def sampleLaneHashReadTsvMap = [:]
+    samples.each { aSample ->
+        sampleLaneHashReadTsvMap[aSample] = []
+    }
+    inPaths.each { aPath ->
+        def sampleName = aPath.getFileName().toString().split( '-' )[0]
+        sampleLaneHashReadTsvMap[sampleName].add( aPath )    
+    }
+
+    /*
+    ** Set up output channel tuples.
+    */
+    def outTuples = []
+    samples.each { aSample ->
+        def numHashReadTsvFiles = sampleLaneHashReadTsvMap[aSample].size()
+        def tuple = new Tuple( sampleLaneHashReadTsvMap[aSample], [ 'sample': aSample, 'numHashReadTsvFiles': numHashReadTsvFiles ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
 }
 
 
