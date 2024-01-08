@@ -39,7 +39,85 @@
 #     How can I replace double quotes with a backslash and double quotes in Python?
 #     You should be using the json module. json.dumps(string). It can also serialize other python data types.
 #
-
+## More notes on escaping:
+##  == Examine preserving quotes: preserve double quotes in the BEGIN{OFS="\t"}.
+##  
+##  ** main.nf
+##  
+##      $script_dir/pipeline_logger.py \
+##      -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+##      -n \${SAMPLE_NAME} \
+##      -p \${PROCESS_BLOCK} \
+##      -v 'sciatac_process_hash_reads -V' \
+##      -s \${START_TIME} \
+##      -e \${STOP_TIME} \
+##      -d ${log_dir} \
+##      -c "awk 'BEGIN{OFS="\t"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}'" \
+##  "awk 'BEGIN{OFS=\"tab\"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}'" \
+##  "awk 'BEGIN{OFS=\\"tab\\"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}'" \
+##  "awk 'BEGIN{OFS=\\\"tab\\\"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}'"
+##  
+##  
+##  ** .command.sh
+##  /net/gs/vol1/home/bge/git/bbi-sciatac-analyze/src/pipeline_logger.py     -r `cat /net/bbi/vol1/data/regression_tests/sciATACseq/test_runs/timeSeriesPilotV1.partial_fastq.test_1/tmp/nextflow_run_name.txt`     -n ${SAMPLE_NAME}     -p ${PROCESS_BLOCK}     -v 'sciatac_process_hash_reads -V'     -s ${START_TIME}     -e ${STOP_TIME}     -d /net/bbi/vol1/data/regression_tests/sciATACseq/test_runs/timeSeriesPilotV1.partial_fastq.test_1/analyze_log_dir     -c "awk 'BEGIN{OFS="       "}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}'" "awk 'BEGIN{OFS="tab"}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}'" "awk 'BEGIN{OFS=\"tab\"}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}'" "awk 'BEGIN{OFS=\"tab\"}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}'"
+##  
+##  
+##  ** log
+##  command_list": ["\"awk 'BEGIN{OFS=\"", "\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'\"", "\"awk 'BEGIN{OFS=tab}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'\"", "\"awk 'BEGIN{OFS=\\\"tab\\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'\"", "\"awk 'BEGIN{OFS=\\\"tab\\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'\""]
+##  
+##  
+##  ** dump_json.py
+##  ['"awk \'BEGIN{OFS="', '"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}\'"', '"awk \'BEGIN{OFS=tab}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}\'"', '"awk \'BEGIN{OFS=\\"tab\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}\'"', '"awk \'BEGIN{OFS=\\"tab\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}\'"']
+##  
+##  
+##  ** distilled log
+##  
+##    + command_list:
+##      list item: "awk 'BEGIN{OFS="
+##      list item: "}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'"
+##      list item: "awk 'BEGIN{OFS=tab}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'"
+##      list item: "awk 'BEGIN{OFS=\"tab\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'"
+##      list item: "awk 'BEGIN{OFS=\"tab\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'"
+##
+##      Notice that the double quotes are escaped in the distilled log, which is
+##      reasonable because the full command is double quoted.
+##
+##
+##  == Examine preserving tab in BEGIN{OFS="\t"}.
+##  
+##  ** main.nf
+##  
+##      $script_dir/pipeline_logger.py \
+##      -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+##      -n \${SAMPLE_NAME} \
+##      -p \${PROCESS_BLOCK} \
+##      -v 'sciatac_process_hash_reads -V' \
+##      -s \${START_TIME} \
+##      -e \${STOP_TIME} \
+##      -d ${log_dir} \
+##      -c "awk 'BEGIN{OFS=\\"\t\\"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}'" \
+##  "awk 'BEGIN{OFS=\\"\\t\\"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}'" \
+##  "awk 'BEGIN{OFS=\\"\\\t\\"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}'"
+##  
+##  
+##  ** .command.sh
+##  /net/gs/vol1/home/bge/git/bbi-sciatac-analyze/src/pipeline_logger.py     -r `cat /net/bbi/vol1/data/regression_tests/sciATACseq/test_runs/timeSeriesPilotV1.partial_fastq.test_1/tmp/nextflow_run_name.txt`     -n ${SAMPLE_NAME}     -p ${PROCESS_BLOCK}     -v 'sciatac_process_hash_reads -V'     -s ${START_TIME}     -e ${STOP_TIME}     -d /net/bbi/vol1/data/regression_tests/sciATACseq/test_runs/timeSeriesPilotV1.partial_fastq.test_1/analyze_log_dir     -c "awk 'BEGIN{OFS=\"      \"}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}'" "awk 'BEGIN{OFS=\"\t\"}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}'" "awk 'BEGIN{OFS=\"\     \"}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}'"
+##  
+##  
+##  ** log
+##  "command_list": ["\"awk 'BEGIN{OFS=\\\"\\t\\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'\"", "\"awk 'BEGIN{OFS=\\\"\\\\t\\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'\"", "\"awk 'BEGIN{OFS=\\\"\\\\\\t\\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'\""
+##  
+##  
+##  ** dump_json.py
+##  ['"awk \'BEGIN{OFS=\\"\\t\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}\'"', '"awk \'BEGIN{OFS=\\"\\\\t\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}\'"', '"awk \'BEGIN{OFS=\\"\\\\\\t\\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}\'"']
+##  
+##  ** distillect log
+##    + command_list:
+##      list item: "awk 'BEGIN{OFS=\"\t\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'"
+##      list item: "awk 'BEGIN{OFS=\"\\t\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'"
+##      list item: "awk 'BEGIN{OFS=\"\\\t\"}{dup=1-($3/$4); print$1,$2,$3,$4,dup;}'"
+##  
+##  
 import os
 import subprocess
 import argparse

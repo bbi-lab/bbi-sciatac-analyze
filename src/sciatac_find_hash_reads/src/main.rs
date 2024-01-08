@@ -19,7 +19,8 @@
 ** Future improvements:
 **   o  faster fastq reader (e.g. fastq package rather than bio
 **      unfortunately the fastq package does not support fastq
-**      files with multi-line read entries)
+**      files with multi-line read entries so I consider it to
+**      be unacceptable.)
 **   o  profiling
 **   o  is read/write buffering working?
 **   o  improved command line parameter handling (e.g. clap package)
@@ -58,7 +59,7 @@ fn get_hash_seq(file_path: String) -> Result<std::collections::HashMap<String, (
      line = line_result?;
      toks = line.split_whitespace().collect();
      if(toks.len() == 2) {
-       hash_map.insert(toks[1].to_owned(), (toks[0].to_owned(), "0".to_owned()));
+       hash_map.insert(toks[1].to_owned(), (toks[0].to_owned(), "1".to_owned()));
      }
      else {
        hash_map.insert(toks[1].to_owned(), (toks[0].to_owned(), toks[2].to_owned()));
@@ -73,12 +74,6 @@ fn get_hash_seq(file_path: String) -> Result<std::collections::HashMap<String, (
 ** be a gzipped file, which is recognized by a
 ** '.gz' suffix.
 ** Notes:
-**   o  consider looking at fastq package for
-**      reading fastq files. It's supposed to
-**      be faster than bio and able to detect
-**      open, and read from files compressed
-**      using a variety of compression
-**      algorithms.
 **   o  the flate2::read::GzDecoder() cannot
 **      read concatenated gzipped files. It
 **      reads only the first 'block' of such
@@ -108,7 +103,7 @@ fn write_hash_record<W: Sized>(record_r1: &bio::io::fastq::Record, hash_value: &
   let seq_id = record_r1.id();
 
   /*
-  ** Trim '.<n>' suffix off read names, if it exists.
+  ** Trim ':<n>' suffix off read names, if it exists.
   */
   let well_id = match seq_id.rfind(':') {
     Some(pos) => seq_id.get(0..pos).expect("error: inconsistent condition"),

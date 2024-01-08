@@ -1,6 +1,6 @@
 [package]
 name = "sciatac_find_hash_reads"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["bge@uw.edu"]
 license = "MIT"
 edition = "2021"

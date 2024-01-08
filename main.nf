@@ -844,9 +844,33 @@ process runHashReadFilterProcess {
     # bash watch for errors
     set -ueo pipefail
 
+    PROCESS_BLOCK='runHashReadFilterProcess'
+    SAMPLE_NAME="${hashReadFilterMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outHashReadsTsv="${hashReadFilterMap['sample']}-${hashReadFilterMap['lane']}.hash_reads.tsv"
 
+    #
+    # Find hash reads in the trimmed fastq files and store in hash_reads.tsv file.
+    #
     ${bin_dir}/sciatac_find_hash_reads -1 ${hashReadFilterMap['fastq1']} -2 ${hashReadFilterMap['fastq2']} -h ${hash_file_path} -o \${outHashReadsTsv}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sciatac_find_hash_reads -V' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir} \
+    -c "outHashReadsTsv=\"${hashReadFilterMap['sample']}-${hashReadFilterMap['lane']}.hash_reads.tsv\"" \
+       "sciatac_find_hash_reads -1 ${hashReadFilterMap['fastq1']} -2 ${hashReadFilterMap['fastq2']} -h ${hash_file_path} -o \${outHashReadsTsv}"
+
     """
 }
 
@@ -869,12 +893,14 @@ process runHashReadAggregationProcess {
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashTable.out", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashReads.per.cell", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashUMIs.per.cell", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashDupRate.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-umi_knee_plot.pdf", mode: 'copy'
 
     input:
     set file( inHashReadsTsvs ), hashReadAggregationMap from runHashReadAggregationInChannel
 
     output:
-    file( "*-aggregate.hash_reads.tsv, *-hashTable.out, *-hashReads.per.cell, hashUMIs.per.cell" ) into runHashReadAggregationOutChannel
+    file( "*" ) into runHashReadAggregationOutChannel
 
     when:
         sciplex_flag
@@ -884,15 +910,53 @@ process runHashReadAggregationProcess {
     # bash watch for errors
     set -ueo pipefail
 
+    PROCESS_BLOCK='runHashReadAggregationProcess'
+    SAMPLE_NAME="${hashReadAggregationMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
     outHashReadsTsvAggregate="${hashReadAggregationMap['sample']}-aggregate.hash_reads.tsv"
 
+    #
+    # Concatenate hash read files by sample.
+    #
     cat ${inHashReadsTsvs} > \${outHashReadsTsvAggregate}
 
-    # makes files
+    # Makes files:
     #   <sample_name>-hashTable.out
     #   <sample_name>-hashReads.per.cell
     #   <sample_name>-hashUMIs.per.cell
-    $bin_dir/sciatac_process_hash_reads -i \${outHashReadsTsvAggregate} -s ${inHashReadsTsvs['sample']}
+    ${bin_dir}/sciatac_process_hash_reads -i \${outHashReadsTsvAggregate} -s ${hashReadAggregationMap['sample']}
+
+    #
+    # Calculate read duplication rates by cell
+    #
+    paste ${hashReadAggregationMap['sample']}-hashUMIs.per.cell ${hashReadAggregationMap['sample']}-hashReads.per.cell \
+        | cut -f 1,2,6,3 \
+        | awk 'BEGIN{OFS="\t"}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}' \
+        > ${hashReadAggregationMap['sample']}-hashDupRate.txt
+
+    #
+    # Make knee-plot.
+    #
+    Rscript ${script_dir}/knee-plot.R ${hashReadAggregationMap['sample']}-hashUMIs.per.cell '.'
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sciatac_process_hash_reads -V' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir} \
+    -c "outHashReadsTsvAggregate=\"${hashReadAggregationMap['sample']}-aggregate.hash_reads.tsv\"" \
+"sciatac_process_hash_reads -i \${outHashReadsTsvAggregate} -s ${hashReadAggregationMap['sample']}" \
+"paste ${hashReadAggregationMap['sample']}-hashUMIs.per.cell ${hashReadAggregationMap['sample']}-hashReads.per.cell \
+| cut -f 1,2,6,3 \
+| awk 'BEGIN{OFS=\\"\\t\\"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}' \
+> ${hashReadAggregationMap['sample']}-hashDupRate.txt" \
+"Rscript ${script_dir}/knee-plot.R ${hashReadAggregationMap['sample']}-hashUMIs.per.cell '.'"
 
     """
 }

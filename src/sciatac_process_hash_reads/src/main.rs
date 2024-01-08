@@ -34,7 +34,7 @@ fn read_hash_read_file(input_filename: &str) -> io::Result<Vec<String>> {
 
 /*
 ** Shift UMI token to the end of the strings.
-** Note: this enabkes simple filtering after
+** Note: this enables simple filtering after
 ** sorting.
 */
 fn reform_hash_read_lines_01(vec_in: Vec<String>) -> io::Result<Vec<String>> {
@@ -50,7 +50,7 @@ fn reform_hash_read_lines_01(vec_in: Vec<String>) -> io::Result<Vec<String>> {
 
 /*
 ** Shift first token to the end of the strings.
-** Note: this enabkes simple filtering after
+** Note: this enables simple filtering after
 ** sorting.
 */
 fn reform_hash_read_lines_02(vec_in: Vec<String>) -> io::Result<Vec<String>> {
@@ -132,8 +132,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     /*
     ** The UMI sequence has changed. (All other tokens
-    ** must be the same as the previous line and identical
-    ** lines are skipped.)
+    ** must be the same as in the previous line and
+    **  identical lines are skipped.)
     */
     n1 += 1;
 
