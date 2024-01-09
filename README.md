@@ -32,6 +32,12 @@ cd ..
 
 The above is a one-time installation setup, or may be required if you need to update the environment.
 
+The bbi-sciatac-analyze pipeline uses two compiled programs to find a process hash reads for sciPlex experiments. These programs require a Rust compiler, which is installed using the information at
+
+https://www.rust-lang.org/tools/install
+
+After installing the Rust compiler, build and install the programs by running the script bbi-sciatac-analyze/install_rust_programs.sh.
+
 In addition, a python 3 interpreter is required.
 
 
@@ -62,6 +68,8 @@ The user-generated samplesheet file (front-end samplesheet) is in CSV format. Th
 ```
 sciatac_samplesheet.py -d
 ```
+
+In order to process a sciPlex experiment, run the samplesheet conversion program, *bbi-sciatac-demux/samplesheet/sciatac_samplesheet.py* with the *--hash_file* command line option. The *--hash_file* option takes the full path to the hash index file, and enables hash read processing in the *bbi-sciatac-analyze* pipeline.
 
 #### Genome files
 
@@ -108,7 +116,7 @@ The script *run.sciatac-demux.sh* creates a sub-directory called *demux_out* whe
 
 We advise users to run the pipelines in tmux sessions so that closing the terminal window does not terminate the pipeline.
 
-When run with the *-with-trace <trace_file_name>* command line parameter, Nextflow writes helpful information to a trace file. In the case that Nextflow is run on a Grid Engine, the trace file has a column labelled *native_id*, which is the Grid Engine job id. You can use this job id with the *qacct -j <job_id>* Grid Engine command to better understand why the Grid Engine may have killed a process. The trace file has a column with the process hash strings, which you can use to find the corresponding process sub-directory in the Nextflow work directory.
+When run with the *-with-trace <trace_file_name>* command line parameter, Nextflow writes helpful information to a trace file. In the case that Nextflow is run on a Grid Engine, the trace file has a column labelled *native_id*, which is the Grid Engine job id. You can use this job id with the *qacct -j <job_id>* Grid Engine command to better understand why the Grid Engine may have killed a process. Additionally, the trace file has columns with the amount of memory used by each process and process hash strings, which you can use to tune the Grid Engine memory requests and find the corresponding process sub-directory in the Nextflow work directory, respectively.
 
 #### Questions and errors:
 If you run into problems, please leave a detailed description in the issue tab above.

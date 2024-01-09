@@ -1,5 +1,7 @@
 #!/bin/bash
 
+mkdir -p bin
+
 pushd src/sciatac_find_hash_reads
 cargo build --release
 popd
