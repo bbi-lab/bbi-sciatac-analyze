@@ -324,7 +324,10 @@ params.motif_calling_gc_bins = 25
 **   boolean values: true/false
 */
 params.samples = null
+params.trimmomatic_memory = 1
+params.trimmomatic_cpus = 4
 params.bowtie_seed = null
+params.bowtie_cpus = 6
 params.reads_threshold = null
 params.calculate_banding_scores = null
 params.make_genome_browser_files = null
@@ -729,6 +732,8 @@ Channel
 
 process adapterTrimmingProcess {
   cache 'lenient'
+  cpus   params.trimmomatic_cpus
+  memory "${params.trimmomatic_memory} GB"
   errorStrategy onError
   publishDir path: "$analyze_dir", saveAs: { qualifyFilename( it, "fastqs_trim" ) }, pattern: "*.fastq.gz", mode: 'copy'
   publishDir path: "$analyze_dir", saveAs: { qualifyFilename( it, "fastqs_trim" ) }, pattern: "*-trimmomatic.stderr", mode: 'copy'
@@ -763,7 +768,7 @@ process adapterTrimmingProcess {
   #
   java -Xmx1G -jar $trimmomatic_exe \
        PE \
-       -threads $task.cpus \
+       -threads ${params.trimmomatic_cpus} \
        ${inAdapterTrimmingMap['fastq1']} \
        ${inAdapterTrimmingMap['fastq2']} \
        \${SAMPLE_NAME}-\${RUN_LANE}_R1.trimmed.fastq.gz \
@@ -788,7 +793,7 @@ process adapterTrimmingProcess {
   -d ${log_dir} \
   -c "java -Xmx1G -jar $trimmomatic_exe \
 PE \
--threads $task.cpus \
+-threads ${params.trimmomatic_cpus} \
 ${inAdapterTrimmingMap['fastq1']} \
 ${inAdapterTrimmingMap['fastq1']} \
 \${SAMPLE_NAME}-\${RUN_LANE}_R1.trimmed.fastq.gz \
@@ -880,7 +885,7 @@ process runHashReadFilterProcess {
 */
 runHashReadFilterOutChannel
     .toList()
-    .flatMap { runHashReadAggregationChannelSetup( it, params, argsJson, sampleLaneMap ) }
+    .flatMap { runHashReadAggregationChannelSetup( it, params, argsJson, sampleLaneMap, sciplex_flag ) }
     .set { runHashReadAggregationInChannel }
 
 /*
@@ -998,6 +1003,7 @@ adapterTrimmingOutChannelCopy02
 
 process runAlignProcess {
     memory "${alignMap['aligner_memory'].multiply(1024.0).div(task.cpus).round()}MB"
+    cpus params.bowtie_cpus
 	cache 'lenient'
     errorStrategy onError
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*_L[0-9][0-9][0-9].bam", mode: 'copy'
@@ -1041,7 +1047,7 @@ process runAlignProcess {
       WHITELIST_FILE_PATH="${alignMap['whitelist_with_mt']}"
       bowtie2 -3 1 \
           -X 2000 \
-          -p ${task.cpus} \
+          -p ${params.bowtie_cpus} \
           -x ${alignMap['genome_index']} \
           -1 ${alignMap['fastq1']} \
           -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
@@ -1055,7 +1061,7 @@ process runAlignProcess {
       WHITELIST_FILE_PATH="${alignMap['whitelist']}"
       bowtie2 -3 1 \
           -X 2000 \
-          -p ${task.cpus} \
+          -p ${params.bowtie_cpus} \
           -x ${alignMap['genome_index']} \
           -1 ${alignMap['fastq1']} \
           -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
@@ -1100,7 +1106,7 @@ process runAlignProcess {
 "WHITELIST_FILE_PATH=\"${alignMap['whitelist_with_mt']}\"" \
 "bowtie2 -3 1 \
 -X 2000 \
--p ${task.cpus} \
+-p ${params.bowtie_cpus} \
 -x ${alignMap['genome_index']} \
 -1 ${alignMap['fastq1']} \
 -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
@@ -1129,7 +1135,7 @@ process runAlignProcess {
 "WHITELIST_FILE_PATH=\"${alignMap['whitelist']}\""
 "bowtie2 -3 1 \
 -X 2000 \
--p ${task.cpus} \
+-p ${params.bowtie_cpus} \
 -x ${alignMap['genome_index']} \
 -1 ${alignMap['fastq1']} \
 -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
@@ -3943,6 +3949,7 @@ def reportRunParams( params ) {
     s += String.format( "Launch directory:                     %s\n", workflow.launchDir )
     s += String.format( "Work directory:                       %s\n", workflow.workDir )
     s += String.format( "Genomes json file:                    %s\n", params.genomes_json )
+    s += String.format( "Bowtie number of cpus:                %s\n", params.bowtie_cpus )
 
 	if( params.samples != null ) {
 		s += String.format( "Samples to include in analysis:   %s\n", params.samples )
@@ -4696,7 +4703,12 @@ def runHashReadFilterChannelSetup( inPaths, params, argsJson, sampleLaneMap ) {
 ** Run hash read aggregation setup functions.
 ** ================================================================================
 */
-def runHashReadAggregationChannelSetup( inPaths, params, argsJson, sampleLaneMap ) {
+def runHashReadAggregationChannelSetup( inPaths, params, argsJson, sampleLaneMap, sciplex_flag ) {
+    if(!sciplex_flag) {
+      def outTuples = []
+      return( outTuples )
+    }
+
     /*
     ** Check for expected BAM files.
     */
