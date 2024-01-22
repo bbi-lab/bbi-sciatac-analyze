@@ -899,7 +899,7 @@ process runHashReadAggregationProcess {
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashReads.per.cell", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashUMIs.per.cell", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashDupRate.txt", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-umi_knee_plot.pdf", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*umi_knee_plot.pdf", mode: 'copy'
 
     input:
     set file( inHashReadsTsvs ), hashReadAggregationMap from runHashReadAggregationInChannel
@@ -942,7 +942,7 @@ process runHashReadAggregationProcess {
 
     #
     # Make knee-plot.
-    #
+    # 
     Rscript ${script_dir}/knee-plot.R ${hashReadAggregationMap['sample']}-hashUMIs.per.cell '.'
 
     STOP_TIME=`date '+%Y%m%d:%H%M%S'`
@@ -1002,7 +1002,7 @@ adapterTrimmingOutChannelCopy02
     .set { runAlignInChannel }
 
 process runAlignProcess {
-    memory "${alignMap['aligner_memory'].multiply(1024.0).div(task.cpus).round()}MB"
+    memory "${alignMap['aligner_memory'].multiply(1024.0).div(params.bowtie_cpus).round()}MB"
     cpus params.bowtie_cpus
 	cache 'lenient'
     errorStrategy onError
@@ -3452,12 +3452,13 @@ process makeReducedDimensionMatrixProcess {
 
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-scrublet_table.csv", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-lsi_coords.txt", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_coords.txt", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*umap_coords.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*umap_plot.pdf", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*umap_plot.png", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-monocle3_cds.rds", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-blacklist_regions_file.log", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-reduce_dimensions.log", mode: 'copy'
-    publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-umap_plot.png", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_dash/img", pattern: "*umap_plot.png", mode: 'copy'
     publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-scrublet_hist.png", mode: 'copy'
 
 	input:
@@ -3467,8 +3468,9 @@ process makeReducedDimensionMatrixProcess {
 
 	output:
     file("*-lsi_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
-    file("*-umap_coords.txt") into makeReducedDimensionMatrixOutChannelUmapCoords
-    file("*-umap_plot.*") into makeReducedDimensionMatrixOutChannelUmapPlot
+    file("*umap_coords.txt") into makeReducedDimensionMatrixOutChannelUmapCoords
+    file("*umap_plot.pdf") into makeReducedDimensionMatrixOutChannelUmapPdfPlot
+    file("*umap_plot.png") into makeReducedDimensionMatrixOutChannelUmapPngPlot
     file("*-monocle3_cds.rds") into makeReducedDimensionMatrixOutChannelMonocle3Cds
     file("*-scrublet_hist.png") into makeReducedDimensionMatrixOutChannelScrubletHist
     file("*-scrublet_table.csv") into makeReducedDimensionMatrixOutChannelScrubletTable
@@ -3700,16 +3702,23 @@ process experimentDashboardProcess {
 */
 
 summarizeCellCallsOutChannelCallCellsSummaryStatsCopy02
+    .flatten()
     .toList()
-    .map { makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( it, sampleSortedNames, sampleGenomeMap ) }
+    .flatMap { makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( it, sampleSortedNames ) }
     .set { makeMergedPlotFilesProcessInChannelCallCellsSummaryStats }
 
-/*
-makeReducedDimensionMatrixOutChannelUmapPlot
+summarizeCellCallsOutChannelCallCellsSummaryPlot
+    .flatten()
     .toList()
-    .map { makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( it, sampleSortedNames, sampleGenomeMap ) }
+    .flatMap { makeMergedPlotFilesProcessChannelSetupMakeMergedSummaryStatsPdfPlots( it, sampleSortedNames ) }
+    .set { makeMergedPlotFilesProcessInChannelMakeMergedSummaryStatsPdfPlots }
+
+makeReducedDimensionMatrixOutChannelUmapPdfPlot
+    .flatten()
+    .toList()
+    .flatMap { makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( it, sampleSortedNames ) }
     .set { makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots }
-*/
+
 
 process makeMergedPlotFilesProcess {
     cache 'lenient'
@@ -3719,8 +3728,9 @@ process makeMergedPlotFilesProcess {
     publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.umap_plots.pdf", mode: 'copy'
 
     input:
-    file( "*") from makeMergedPlotFilesProcessInChannelCallCellsSummaryStats
-//    file( "*-umap_plots.pdf") from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
+    file( summaryStatsTxtFiles ) from makeMergedPlotFilesProcessInChannelCallCellsSummaryStats
+    file( summaryStatsPdfFiles ) from makeMergedPlotFilesProcessInChannelMakeMergedSummaryStatsPdfPlots
+    file( umapPdfFiles ) from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
 
     output:
     file( "merged.called_cells_summary.stats.csv" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryTsv
@@ -3738,15 +3748,16 @@ process makeMergedPlotFilesProcess {
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
     mkdir -p ${output_dir}/analyze_out/merged_plots
-    ${script_dir}/merge_summary_plots.py -i ${output_dir}/analyze_out/args.json -o merged.called_cells_summary.pdf
-    ${script_dir}/merge_umap_plots.py -i ${output_dir}/analyze_out/args.json -o merged.umap_plots.pdf
+    pdfunite ${summaryStatsPdfFiles} merged.called_cells_summary.pdf
+    pdfunite ${umapPdfFiles} merged.umap_plots.pdf
+
 
     header='sample cell_threshold fraction_hs fraction_tss median_per_cell_frip median_per_cell_frit tss_enrichment sample_peaks_called total_merged_peaks total_reads fraction_reads_in_cells total_barcodes number_of_cells median_reads_per_cell min_reads_per_cell max_reads_per_cell median_duplication_rate median_fraction_molecules_observed median_total_fragments total_deduplicated_reads fraction_mitochondrial_reads [bloom_collision_rate]'
     stats_file='merged.called_cells_summary.stats.csv'
     header_wtabs=`echo \${header} | sed 's/ /\t/g'`
     rm -f \${stats_file}
     echo "\${header_wtabs}" > \${stats_file}
-    lfil=`ls *-called_cells_summary.stats.txt`
+    lfil=`ls ${summaryStatsTxtFiles}`
     for fil in \${lfil}
     do
       tail -n +2 \${fil} >> \${stats_file}
@@ -4743,7 +4754,7 @@ def runHashReadAggregationChannelSetup( inPaths, params, argsJson, sampleLaneMap
     }
     inPaths.each { aPath ->
         def sampleName = aPath.getFileName().toString().split( '-' )[0]
-        sampleLaneHashReadTsvMap[sampleName].add( aPath )    
+        sampleLaneHashReadTsvMap[sampleName].add( aPath )
     }
 
     /*
@@ -7385,16 +7396,116 @@ def experimentDashboardProcessChannelSetup( inPaths, sampleSortedNames, sampleGe
 }
 
 
-def makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( inPaths, sampleSortedNames, sampleGenomeMap ) {
-    return( inPaths )
+def makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected summary stats txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = String.format( '%s-called_cells_summary.stats.txt', aSample )
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+ 
+    /*
+    ** Gather input summary stat txt files (paths).
+    ** Store them in a list.
+    */
+    def sampleSummaryStatTxtPathList = []
+    inPaths.each { aPath ->
+        sampleSummaryStatTxtPathList.add( aPath )
+    }
+ 
+    /*
+    ** Set up output channel tuple, which has all
+    ** sample txt file paths.
+    */
+    def outTuples = []
+    outTuples.add(sampleSummaryStatTxtPathList)
+ 
+    return( outTuples )
+}
+ 
+
+def makeMergedPlotFilesProcessChannelSetupMakeMergedSummaryStatsPdfPlots( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected summary stats PDF files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = String.format( '%s-called_cells_summary.pdf', aSample )
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+ 
+    /*
+    ** Gather input summary stat PDF files (paths).
+    ** Store them in a list.
+    */
+    def sampleSummaryStatPdfPathList = []
+    inPaths.each { aPath ->
+        sampleSummaryStatPdfPathList.add( aPath )
+    }
+ 
+    /*
+    ** Set up output channel tuple, which has all
+    ** sample PDF file paths.
+    */
+    def outTuples = []
+    outTuples.add(sampleSummaryStatPdfPathList)
+ 
+    return( outTuples )
 }
 
 
-/*
-def makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( inPaths, sampleSortedNames, sampleGenomeMap ) {
-    return( inPaths )
+def makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected UMAP PDF files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = String.format( '%s-umap_plot.pdf', aSample )
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+ 
+    /*
+    ** Gather input UMAP PDF files (paths).
+    ** Store them in a list.
+    */
+    def sampleUmapPdfPathList = []
+    inPaths.each { aPath ->
+        sampleUmapPdfPathList.add( aPath )
+    }
+ 
+    /*
+    ** Set up output channel tuple, which has all
+    ** sample PDF file paths.
+    */
+    def outTuples = []
+    outTuples.add(sampleUmapPdfPathList)
+    return( outTuples )
 }
-*/
-
 
 
