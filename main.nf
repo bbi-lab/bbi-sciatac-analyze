@@ -373,6 +373,7 @@ checkDirectories( params, log_dir, tmp_dir )
 ** Report run parameter values.
 */
 reportRunParams( params )
+println ""
 
 /*
 ** Archive configuration and samplesheet files in demux_dir.
@@ -398,7 +399,10 @@ tfile.write("${workflow.runName}")
 /*
 ** Read args.json file in demux_dir.
 */
+println "INFO: read args.json file next..."
 def argsJson = readArgsJson( demux_dir + "/args.json" )
+println "INFO: read args.json file done."
+println ""
 
 /*
 ** Get map of sample names (samples in JSON file) where the keys are
@@ -407,7 +411,10 @@ def argsJson = readArgsJson( demux_dir + "/args.json" )
 ** Notes:
 **   o  all distinct samples in the sample JSON file
 */
+println "INFO: read sample lane JSON file next..."
 def sampleLaneJsonMap = getSamplesJson( argsJson )
+println "INFO: read sample lane JSON file done."
+println ""
 
 /*
 ** Get a map of merged peak groups keyed by sample name.
@@ -417,7 +424,10 @@ def samplePeakGroupMap = getSamplePeakGroupMap( argsJson )
 /*
 ** Get a map of peak files keyed by sample name.
 */
+println "INFO: read peak map file next..."
 def samplePeakFileMap = getSamplePeakFileMap( argsJson )
+println "INFO: read peak map file done."
+println ""
 
 /*
 ** Check that args.samples, if given, are in json file and
@@ -433,7 +443,10 @@ def sampleSortedNames = getSortedSampleNames( sampleLaneMap )
 /*
 ** Read genome file paths from json file.
 */
+println "INFO: read genomes json file next..."
 def genomesJson = readGenomesJson( params, argsJson )
+println "INFO: read genomes json file done"
+println ""
 
 /*
 ** Make a list of names of the genomes required by the samples.
@@ -444,7 +457,10 @@ def genomesRequired = findRequiredGenomes( sampleLaneMap, argsJson )
 ** Make a map of genomes required by the samples.
 ** [ '<sample_name>': <genome_map_from_json_file> ]
 */
+println "INFO: get sample genome map next..."
 def sampleGenomeMap = getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson )
+println "INFO: get sample genome map done."
+println ""
 
 /*
 ** ================================================================================
@@ -479,10 +495,18 @@ def (Boolean sciplex_flag, String hash_file_path) = copyHashReadFile( argsJson )
 ** Notes:
 **   o  perhaps write sample-specific JSON files
 */
+println "INFO: write run data JSON file next..."
 def jsonFilename = analyze_dir + '/args.json'
 writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow )
+println "INFO: write run data JSON file done."
+println ""
 
 
+println "INFO: begin processing."
+println ""
+
+ 
+  
 /*
 ** ================================================================================
 ** Preliminary processes.
@@ -3960,6 +3984,8 @@ def reportRunParams( params ) {
     s += String.format( "Launch directory:                     %s\n", workflow.launchDir )
     s += String.format( "Work directory:                       %s\n", workflow.workDir )
     s += String.format( "Genomes json file:                    %s\n", params.genomes_json )
+    s += String.format( "Trimmomatic number of cpus:           %s\n", params.trimmomatic_cpus )
+    s += String.format( "Trimmomatic memory:                   %s GB\n", params.trimmomatic_memory )
     s += String.format( "Bowtie number of cpus:                %s\n", params.bowtie_cpus )
 
 	if( params.samples != null ) {
