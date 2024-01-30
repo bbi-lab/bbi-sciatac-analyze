@@ -370,12 +370,6 @@ input_file_dir = output_dir + '/input_files'
 checkDirectories( params, log_dir, tmp_dir )
 
 /*
-** Report run parameter values.
-*/
-reportRunParams( params )
-println ""
-
-/*
 ** Archive configuration and samplesheet files in demux_dir.
 */
 archiveRunFiles( params, timeNow )
@@ -401,8 +395,6 @@ tfile.write("${workflow.runName}")
 */
 println "INFO: read args.json file next..."
 def argsJson = readArgsJson( demux_dir + "/args.json" )
-println "INFO: read args.json file done."
-println ""
 
 /*
 ** Get map of sample names (samples in JSON file) where the keys are
@@ -413,8 +405,6 @@ println ""
 */
 println "INFO: read sample lane JSON file next..."
 def sampleLaneJsonMap = getSamplesJson( argsJson )
-println "INFO: read sample lane JSON file done."
-println ""
 
 /*
 ** Get a map of merged peak groups keyed by sample name.
@@ -426,8 +416,6 @@ def samplePeakGroupMap = getSamplePeakGroupMap( argsJson )
 */
 println "INFO: read peak map file next..."
 def samplePeakFileMap = getSamplePeakFileMap( argsJson )
-println "INFO: read peak map file done."
-println ""
 
 /*
 ** Check that args.samples, if given, are in json file and
@@ -445,8 +433,6 @@ def sampleSortedNames = getSortedSampleNames( sampleLaneMap )
 */
 println "INFO: read genomes json file next..."
 def genomesJson = readGenomesJson( params, argsJson )
-println "INFO: read genomes json file done"
-println ""
 
 /*
 ** Make a list of names of the genomes required by the samples.
@@ -459,8 +445,6 @@ def genomesRequired = findRequiredGenomes( sampleLaneMap, argsJson )
 */
 println "INFO: get sample genome map next..."
 def sampleGenomeMap = getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson )
-println "INFO: get sample genome map done."
-println ""
 
 /*
 ** ================================================================================
@@ -471,24 +455,35 @@ println ""
 /*
 ** Check that required genome files exist.
 */
+println "INFO: check genome files next..."
 checkGenomeFiles( params, genomesRequired, genomesJson )
 
 /*
 ** Check that peak files exist.
 */
+println "INFO: checkpeak files next..."
 checkPeakFiles( samplePeakFileMap )
 
 
 /*
 ** Check for trimmed fastq files.
 */
+println "INFO: check fastqs next..."
 checkFastqs( params, sampleLaneJsonMap )
 
 /*
 ** Copy hash read file, if used.
 ** return( new Tuple( sciplex, targetPath.normalize().toString() ) )
 */
+println "INFO: check for sciPlex next..."
 def (Boolean sciplex_flag, String hash_file_path) = copyHashReadFile( argsJson )
+
+/*
+** Report run parameter values.
+*/
+println ""
+reportRunParams( params )
+println ""
 
 /*
 ** Write processing args.json file(s).
@@ -498,15 +493,13 @@ def (Boolean sciplex_flag, String hash_file_path) = copyHashReadFile( argsJson )
 println "INFO: write run data JSON file next..."
 def jsonFilename = analyze_dir + '/args.json'
 writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow )
-println "INFO: write run data JSON file done."
+
+
 println ""
-
-
 println "INFO: begin processing."
 println ""
 
- 
-  
+
 /*
 ** ================================================================================
 ** Preliminary processes.
@@ -4352,7 +4345,9 @@ def copyHashReadFile( argsJson ) {
     runs.each { aRun ->
         if( argsJson[aRun]['sample_data'].containsKey( 'hash_file' ) ) {
             hash_file = argsJson[aRun]['sample_data']['hash_file']
-            sciplex_flag = true
+            if( hash_file != null ) {
+              sciplex_flag = true
+            }
         }
     }
 
