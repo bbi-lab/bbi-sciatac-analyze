@@ -289,6 +289,7 @@ def timeNow = new Date()
 */
 pipeline_path="$workflow.projectDir"
 script_dir="${pipeline_path}/src"
+bin_dir="${pipeline_path}/bin"
 
 /*
 ** Set errorStrategy directive policy.
@@ -323,7 +324,10 @@ params.motif_calling_gc_bins = 25
 **   boolean values: true/false
 */
 params.samples = null
+params.trimmomatic_memory = 1
+params.trimmomatic_cpus = 4
 params.bowtie_seed = null
+params.bowtie_cpus = 6
 params.reads_threshold = null
 params.calculate_banding_scores = null
 params.make_genome_browser_files = null
@@ -358,16 +362,12 @@ demux_dir = output_dir + '/demux_out'
 analyze_dir = output_dir + '/analyze_out'
 log_dir = output_dir + '/analyze_log_dir'
 tmp_dir = output_dir + '/tmp'
+input_file_dir = output_dir + '/input_files'
 
 /*
 ** Check that required directories exist or can be made.
 */
 checkDirectories( params, log_dir, tmp_dir )
-
-/*
-** Report run parameter values.
-*/
-reportRunParams( params )
 
 /*
 ** Archive configuration and samplesheet files in demux_dir.
@@ -393,6 +393,7 @@ tfile.write("${workflow.runName}")
 /*
 ** Read args.json file in demux_dir.
 */
+println "INFO: read args.json file next..."
 def argsJson = readArgsJson( demux_dir + "/args.json" )
 
 /*
@@ -402,6 +403,7 @@ def argsJson = readArgsJson( demux_dir + "/args.json" )
 ** Notes:
 **   o  all distinct samples in the sample JSON file
 */
+println "INFO: read sample lane JSON file next..."
 def sampleLaneJsonMap = getSamplesJson( argsJson )
 
 /*
@@ -412,6 +414,7 @@ def samplePeakGroupMap = getSamplePeakGroupMap( argsJson )
 /*
 ** Get a map of peak files keyed by sample name.
 */
+println "INFO: read peak map file next..."
 def samplePeakFileMap = getSamplePeakFileMap( argsJson )
 
 /*
@@ -428,6 +431,7 @@ def sampleSortedNames = getSortedSampleNames( sampleLaneMap )
 /*
 ** Read genome file paths from json file.
 */
+println "INFO: read genomes json file next..."
 def genomesJson = readGenomesJson( params, argsJson )
 
 /*
@@ -439,6 +443,7 @@ def genomesRequired = findRequiredGenomes( sampleLaneMap, argsJson )
 ** Make a map of genomes required by the samples.
 ** [ '<sample_name>': <genome_map_from_json_file> ]
 */
+println "INFO: get sample genome map next..."
 def sampleGenomeMap = getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson )
 
 /*
@@ -450,27 +455,49 @@ def sampleGenomeMap = getSampleGenomeMap( sampleLaneMap, argsJson, genomesJson )
 /*
 ** Check that required genome files exist.
 */
+println "INFO: check genome files next..."
 checkGenomeFiles( params, genomesRequired, genomesJson )
 
 /*
 ** Check that peak files exist.
 */
+println "INFO: checkpeak files next..."
 checkPeakFiles( samplePeakFileMap )
 
 
 /*
 ** Check for trimmed fastq files.
 */
+println "INFO: check fastqs next..."
 checkFastqs( params, sampleLaneJsonMap )
 
+/*
+** Copy hash read file, if used.
+** return( new Tuple( sciplex, targetPath.normalize().toString() ) )
+*/
+println "INFO: check for sciPlex next..."
+def (Boolean sciplex_flag, String hash_file_path) = copyHashReadFile( argsJson )
+
+/*
+** Report run parameter values.
+*/
+println ""
+reportRunParams( params )
+println ""
 
 /*
 ** Write processing args.json file(s).
 ** Notes:
 **   o  perhaps write sample-specific JSON files
 */
+println "INFO: write run data JSON file next..."
 def jsonFilename = analyze_dir + '/args.json'
 writeRunDataJsonFile( params, argsJson, sampleGenomeMap, jsonFilename, timeNow )
+
+
+println ""
+println "INFO: begin processing."
+println ""
 
 
 /*
@@ -722,6 +749,8 @@ Channel
 
 process adapterTrimmingProcess {
   cache 'lenient'
+  cpus   params.trimmomatic_cpus
+  memory "${params.trimmomatic_memory} GB"
   errorStrategy onError
   publishDir path: "$analyze_dir", saveAs: { qualifyFilename( it, "fastqs_trim" ) }, pattern: "*.fastq.gz", mode: 'copy'
   publishDir path: "$analyze_dir", saveAs: { qualifyFilename( it, "fastqs_trim" ) }, pattern: "*-trimmomatic.stderr", mode: 'copy'
@@ -756,7 +785,7 @@ process adapterTrimmingProcess {
   #
   java -Xmx1G -jar $trimmomatic_exe \
        PE \
-       -threads $task.cpus \
+       -threads ${params.trimmomatic_cpus} \
        ${inAdapterTrimmingMap['fastq1']} \
        ${inAdapterTrimmingMap['fastq2']} \
        \${SAMPLE_NAME}-\${RUN_LANE}_R1.trimmed.fastq.gz \
@@ -781,7 +810,7 @@ process adapterTrimmingProcess {
   -d ${log_dir} \
   -c "java -Xmx1G -jar $trimmomatic_exe \
 PE \
--threads $task.cpus \
+-threads ${params.trimmomatic_cpus} \
 ${inAdapterTrimmingMap['fastq1']} \
 ${inAdapterTrimmingMap['fastq1']} \
 \${SAMPLE_NAME}-\${RUN_LANE}_R1.trimmed.fastq.gz \
@@ -793,6 +822,165 @@ TRAILING:3 \
 SLIDINGWINDOW:4:10 \
 MINLEN:20 2> \${SAMPLE_NAME}-\${RUN_LANE}-trimmomatic.stderr"
   """
+}
+
+
+adapterTrimmingOutChannel
+.into {
+  adapterTrimmingOutChannelCopy01;
+  adapterTrimmingOutChannelCopy02 }
+
+
+/*
+** ================================================================================
+** Run hash read filter.
+** ================================================================================
+*/
+
+/*
+** Run hash read filter.
+** Notes:
+*/
+adapterTrimmingOutChannelCopy01
+    .flatten()
+    .toList()
+    .flatMap { runHashReadFilterChannelSetup( it, params, argsJson, sampleLaneMap ) }
+    .set { runHashReadFilterInChannel }
+
+process runHashReadFilterProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*.hash_reads.tsv", mode: 'copy'
+
+    input:
+    val hashReadFilterMap from runHashReadFilterInChannel
+
+    output:
+    file( "*.hash_reads.tsv" ) into runHashReadFilterOutChannel
+
+    when:
+        sciplex_flag
+
+    script:
+    """
+    # bash watch for errors
+    set -ueo pipefail
+
+    PROCESS_BLOCK='runHashReadFilterProcess'
+    SAMPLE_NAME="${hashReadFilterMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    outHashReadsTsv="${hashReadFilterMap['sample']}-${hashReadFilterMap['lane']}.hash_reads.tsv"
+
+    #
+    # Find hash reads in the trimmed fastq files and store in hash_reads.tsv file.
+    #
+    ${bin_dir}/sciatac_find_hash_reads -1 ${hashReadFilterMap['fastq1']} -2 ${hashReadFilterMap['fastq2']} -h ${hash_file_path} -o \${outHashReadsTsv}
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    #
+    # Logging block.
+    #
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sciatac_find_hash_reads -V' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir} \
+    -c "outHashReadsTsv=\"${hashReadFilterMap['sample']}-${hashReadFilterMap['lane']}.hash_reads.tsv\"" \
+       "sciatac_find_hash_reads -1 ${hashReadFilterMap['fastq1']} -2 ${hashReadFilterMap['fastq2']} -h ${hash_file_path} -o \${outHashReadsTsv}"
+
+    """
+}
+
+
+/*
+** Aggregate and further process hash read output.
+*/
+runHashReadFilterOutChannel
+    .toList()
+    .flatMap { runHashReadAggregationChannelSetup( it, params, argsJson, sampleLaneMap, sciplex_flag ) }
+    .set { runHashReadAggregationInChannel }
+
+/*
+** Aggregate hash reads results.
+*/
+process runHashReadAggregationProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-aggregate.hash_reads.tsv", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashTable.out", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashReads.per.cell", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashUMIs.per.cell", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-hashDupRate.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*umi_knee_plot.pdf", mode: 'copy'
+
+    input:
+    set file( inHashReadsTsvs ), hashReadAggregationMap from runHashReadAggregationInChannel
+
+    output:
+    file( "*" ) into runHashReadAggregationOutChannel
+
+    when:
+        sciplex_flag
+
+    script:
+    """
+    # bash watch for errors
+    set -ueo pipefail
+
+    PROCESS_BLOCK='runHashReadAggregationProcess'
+    SAMPLE_NAME="${hashReadAggregationMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    outHashReadsTsvAggregate="${hashReadAggregationMap['sample']}-aggregate.hash_reads.tsv"
+
+    #
+    # Concatenate hash read files by sample.
+    #
+    cat ${inHashReadsTsvs} > \${outHashReadsTsvAggregate}
+
+    # Makes files:
+    #   <sample_name>-hashTable.out
+    #   <sample_name>-hashReads.per.cell
+    #   <sample_name>-hashUMIs.per.cell
+    ${bin_dir}/sciatac_process_hash_reads -i \${outHashReadsTsvAggregate} -s ${hashReadAggregationMap['sample']}
+
+    #
+    # Calculate read duplication rates by cell
+    #
+    paste ${hashReadAggregationMap['sample']}-hashUMIs.per.cell ${hashReadAggregationMap['sample']}-hashReads.per.cell \
+        | cut -f 1,2,6,3 \
+        | awk 'BEGIN{OFS="\t"}{dup=1-(\$3/\$4); print\$1,\$2,\$3,\$4,dup;}' \
+        > ${hashReadAggregationMap['sample']}-hashDupRate.txt
+
+    #
+    # Make knee-plot.
+    # 
+    Rscript ${script_dir}/knee-plot.R ${hashReadAggregationMap['sample']}-hashUMIs.per.cell '.'
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'sciatac_process_hash_reads -V' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir} \
+    -c "outHashReadsTsvAggregate=\"${hashReadAggregationMap['sample']}-aggregate.hash_reads.tsv\"" \
+"sciatac_process_hash_reads -i \${outHashReadsTsvAggregate} -s ${hashReadAggregationMap['sample']}" \
+"paste ${hashReadAggregationMap['sample']}-hashUMIs.per.cell ${hashReadAggregationMap['sample']}-hashReads.per.cell \
+| cut -f 1,2,6,3 \
+| awk 'BEGIN{OFS=\\"\\t\\"}{dup=1-(\\\$3/\\\$4); print\\\$1,\\\$2,\\\$3,\\\$4,dup;}' \
+> ${hashReadAggregationMap['sample']}-hashDupRate.txt" \
+"Rscript ${script_dir}/knee-plot.R ${hashReadAggregationMap['sample']}-hashUMIs.per.cell '.'"
+
+    """
 }
 
 
@@ -824,14 +1012,15 @@ MINLEN:20 2> \${SAMPLE_NAME}-\${RUN_LANE}-trimmomatic.stderr"
 **        o  sort resulting alignment files
 */
 
-adapterTrimmingOutChannel
+adapterTrimmingOutChannelCopy02
     .flatten()
     .toList()
     .flatMap { runAlignChannelSetup( it, params, argsJson, sampleLaneMap, genomesJson ) }
     .set { runAlignInChannel }
 
 process runAlignProcess {
-    memory "${alignMap['aligner_memory'].multiply(1024.0).div(task.cpus).round()}MB"
+    memory "${alignMap['aligner_memory'].multiply(1024.0).div(params.bowtie_cpus).round()}MB"
+    cpus params.bowtie_cpus
 	cache 'lenient'
     errorStrategy onError
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "align_reads" ) }, pattern: "*_L[0-9][0-9][0-9].bam", mode: 'copy'
@@ -875,7 +1064,7 @@ process runAlignProcess {
       WHITELIST_FILE_PATH="${alignMap['whitelist_with_mt']}"
       bowtie2 -3 1 \
           -X 2000 \
-          -p ${task.cpus} \
+          -p ${params.bowtie_cpus} \
           -x ${alignMap['genome_index']} \
           -1 ${alignMap['fastq1']} \
           -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
@@ -889,7 +1078,7 @@ process runAlignProcess {
       WHITELIST_FILE_PATH="${alignMap['whitelist']}"
       bowtie2 -3 1 \
           -X 2000 \
-          -p ${task.cpus} \
+          -p ${params.bowtie_cpus} \
           -x ${alignMap['genome_index']} \
           -1 ${alignMap['fastq1']} \
           -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
@@ -934,7 +1123,7 @@ process runAlignProcess {
 "WHITELIST_FILE_PATH=\"${alignMap['whitelist_with_mt']}\"" \
 "bowtie2 -3 1 \
 -X 2000 \
--p ${task.cpus} \
+-p ${params.bowtie_cpus} \
 -x ${alignMap['genome_index']} \
 -1 ${alignMap['fastq1']} \
 -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
@@ -963,7 +1152,7 @@ process runAlignProcess {
 "WHITELIST_FILE_PATH=\"${alignMap['whitelist']}\""
 "bowtie2 -3 1 \
 -X 2000 \
--p ${task.cpus} \
+-p ${params.bowtie_cpus} \
 -x ${alignMap['genome_index']} \
 -1 ${alignMap['fastq1']} \
 -2 ${alignMap['fastq2']} ${alignMap['seed']} 2> \${bowtieStderr} \
@@ -3280,12 +3469,13 @@ process makeReducedDimensionMatrixProcess {
 
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-scrublet_table.csv", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-lsi_coords.txt", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_coords.txt", mode: 'copy'
-    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-umap_plot.*", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*umap_coords.txt", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*umap_plot.pdf", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*umap_plot.png", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-monocle3_cds.rds", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-blacklist_regions_file.log", mode: 'copy'
     publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "reduce_dimension" ) }, pattern: "*-reduce_dimensions.log", mode: 'copy'
-    publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-umap_plot.png", mode: 'copy'
+    publishDir path: "${output_dir}/analyze_dash/img", pattern: "*umap_plot.png", mode: 'copy'
     publishDir path: "${output_dir}/analyze_dash/img", pattern: "*-scrublet_hist.png", mode: 'copy'
 
 	input:
@@ -3295,8 +3485,9 @@ process makeReducedDimensionMatrixProcess {
 
 	output:
     file("*-lsi_coords.txt") into makeReducedDimensionMatrixOutChannelPcaCoords
-    file("*-umap_coords.txt") into makeReducedDimensionMatrixOutChannelUmapCoords
-    file("*-umap_plot.*") into makeReducedDimensionMatrixOutChannelUmapPlot
+    file("*umap_coords.txt") into makeReducedDimensionMatrixOutChannelUmapCoords
+    file("*umap_plot.pdf") into makeReducedDimensionMatrixOutChannelUmapPdfPlot
+    file("*umap_plot.png") into makeReducedDimensionMatrixOutChannelUmapPngPlot
     file("*-monocle3_cds.rds") into makeReducedDimensionMatrixOutChannelMonocle3Cds
     file("*-scrublet_hist.png") into makeReducedDimensionMatrixOutChannelScrubletHist
     file("*-scrublet_table.csv") into makeReducedDimensionMatrixOutChannelScrubletTable
@@ -3528,14 +3719,23 @@ process experimentDashboardProcess {
 */
 
 summarizeCellCallsOutChannelCallCellsSummaryStatsCopy02
+    .flatten()
     .toList()
-    .map { makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( it, sampleSortedNames, sampleGenomeMap ) }
+    .flatMap { makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( it, sampleSortedNames ) }
     .set { makeMergedPlotFilesProcessInChannelCallCellsSummaryStats }
 
-makeReducedDimensionMatrixOutChannelUmapPlot
+summarizeCellCallsOutChannelCallCellsSummaryPlot
+    .flatten()
     .toList()
-    .map { makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( it, sampleSortedNames, sampleGenomeMap ) }
+    .flatMap { makeMergedPlotFilesProcessChannelSetupMakeMergedSummaryStatsPdfPlots( it, sampleSortedNames ) }
+    .set { makeMergedPlotFilesProcessInChannelMakeMergedSummaryStatsPdfPlots }
+
+makeReducedDimensionMatrixOutChannelUmapPdfPlot
+    .flatten()
+    .toList()
+    .flatMap { makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( it, sampleSortedNames ) }
     .set { makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots }
+
 
 process makeMergedPlotFilesProcess {
     cache 'lenient'
@@ -3545,8 +3745,9 @@ process makeMergedPlotFilesProcess {
     publishDir path: "${output_dir}/analyze_out/merged_plots", pattern: "merged.umap_plots.pdf", mode: 'copy'
 
     input:
-    file( "*") from makeMergedPlotFilesProcessInChannelCallCellsSummaryStats
-    file( "*-umap_plots.pdf") from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
+    file( summaryStatsTxtFiles ) from makeMergedPlotFilesProcessInChannelCallCellsSummaryStats
+    file( summaryStatsPdfFiles ) from makeMergedPlotFilesProcessInChannelMakeMergedSummaryStatsPdfPlots
+    file( umapPdfFiles ) from makeMergedPlotFilesProcessInChannelMakeMergedUmapPlots
 
     output:
     file( "merged.called_cells_summary.stats.csv" ) into makeMergedPlotFilesProcessOutChannelMergedCalledCellsSummaryTsv
@@ -3564,15 +3765,16 @@ process makeMergedPlotFilesProcess {
     START_TIME=`date '+%Y%m%d:%H%M%S'`
 
     mkdir -p ${output_dir}/analyze_out/merged_plots
-    ${script_dir}/merge_summary_plots.py -i ${output_dir}/analyze_out/args.json -o merged.called_cells_summary.pdf
-    ${script_dir}/merge_umap_plots.py -i ${output_dir}/analyze_out/args.json -o merged.umap_plots.pdf
+    pdfunite ${summaryStatsPdfFiles} merged.called_cells_summary.pdf
+    pdfunite ${umapPdfFiles} merged.umap_plots.pdf
+
 
     header='sample cell_threshold fraction_hs fraction_tss median_per_cell_frip median_per_cell_frit tss_enrichment sample_peaks_called total_merged_peaks total_reads fraction_reads_in_cells total_barcodes number_of_cells median_reads_per_cell min_reads_per_cell max_reads_per_cell median_duplication_rate median_fraction_molecules_observed median_total_fragments total_deduplicated_reads fraction_mitochondrial_reads [bloom_collision_rate]'
     stats_file='merged.called_cells_summary.stats.csv'
     header_wtabs=`echo \${header} | sed 's/ /\t/g'`
     rm -f \${stats_file}
     echo "\${header_wtabs}" > \${stats_file}
-    lfil=`ls *-called_cells_summary.stats.txt`
+    lfil=`ls ${summaryStatsTxtFiles}`
     for fil in \${lfil}
     do
       tail -n +2 \${fil} >> \${stats_file}
@@ -3775,6 +3977,9 @@ def reportRunParams( params ) {
     s += String.format( "Launch directory:                     %s\n", workflow.launchDir )
     s += String.format( "Work directory:                       %s\n", workflow.workDir )
     s += String.format( "Genomes json file:                    %s\n", params.genomes_json )
+    s += String.format( "Trimmomatic number of cpus:           %s\n", params.trimmomatic_cpus )
+    s += String.format( "Trimmomatic memory:                   %s GB\n", params.trimmomatic_memory )
+    s += String.format( "Bowtie number of cpus:                %s\n", params.bowtie_cpus )
 
 	if( params.samples != null ) {
 		s += String.format( "Samples to include in analysis:   %s\n", params.samples )
@@ -4129,6 +4334,44 @@ def checkFastqs( params, sampleLaneMap ) {
 
 
 /*
+** Copy the hash read file, if this is a sciPlex experiment.
+** Notes:
+**   o  copy the hash read file to <run_name>/input_files/*
+**   o  assumes that there is only one hash read file
+*/
+def copyHashReadFile( argsJson ) {
+    def sciplex_flag = false
+    def runs = argsJson.keySet()
+    runs.each { aRun ->
+        if( argsJson[aRun]['sample_data'].containsKey( 'hash_file' ) ) {
+            hash_file = argsJson[aRun]['sample_data']['hash_file']
+            if( hash_file != null ) {
+              sciplex_flag = true
+            }
+        }
+    }
+
+    if( sciplex_flag ) {
+      def index = hash_file.lastIndexOf(File.separator)
+      def fileName = hash_file.substring(index+1)
+
+      def file = new File(input_file_dir)
+      file.mkdir()
+
+      def targetFile = input_file_dir + '/' + 'hash_indexes.txt'
+      def targetPath = new java.io.File(targetFile).toPath()
+      java.nio.file.Files.copy(
+          new java.io.File(hash_file).toPath(),
+          targetPath,
+          java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+          java.nio.file.StandardCopyOption.COPY_ATTRIBUTES );
+      return( new Tuple( sciplex_flag, targetPath.normalize().toString() ) )
+    }
+    return( new Tuple( false, '') )
+}
+
+
+/*
 ** Get sample names from demux args.json file and return in a list.
 */
 def getArgsJsonSamples( args_json ) {
@@ -4420,6 +4663,132 @@ def runAdapterTrimmingChannelSetup( sampleLaneMap ) {
     }
 
     return( adapterTrimmingMaps )
+}
+
+
+/*
+** ================================================================================
+** Run hash read filter setup functions.
+** ================================================================================
+*/
+def runHashReadFilterChannelSetup( inPaths, params, argsJson, sampleLaneMap ) {
+    /*
+    ** Check for expected BAM files.
+    */
+    def filesExpected = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        def fileName
+        lanes.each { aLane ->
+            fileName = String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+            filesExpected.add( fileName )
+            fileName = String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+            filesExpected.add( fileName )
+        }
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Gather input trimmed fastq files (paths).
+    ** Store them in a map of lists keyed by sample name.
+    */
+    def fileTrimmedFastqMap = [:]
+    inPaths.each { aPath ->
+        def fileName = aPath.getFileName().toString()
+        fileTrimmedFastqMap[fileName] = aPath
+    }
+
+    def hashReadFilterMaps = []
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        lanes.each { aLane ->
+
+            def fastqName1     = String.format( '%s-%s_R1.trimmed.fastq.gz', aSample, aLane )
+            def fastqName2     = String.format( '%s-%s_R2.trimmed.fastq.gz', aSample, aLane )
+
+            def fastq1         = fileTrimmedFastqMap[fastqName1]
+            def fastq2         = fileTrimmedFastqMap[fastqName2]
+
+            hashReadFilterMaps.add( [ 'sample': aSample,
+                                      'lane': aLane,
+                                      'fastq1': fastq1,
+                                      'fastq2': fastq2] )
+        }
+    }
+
+    return( hashReadFilterMaps )
+}
+
+
+/*
+** ================================================================================
+** Run hash read aggregation setup functions.
+** ================================================================================
+*/
+def runHashReadAggregationChannelSetup( inPaths, params, argsJson, sampleLaneMap, sciplex_flag ) {
+    if(!sciplex_flag) {
+      def outTuples = []
+      return( outTuples )
+    }
+
+    /*
+    ** Check for expected BAM files.
+    */
+    def filesExpected = []
+    def samples = sampleLaneMap.keySet()
+    samples.each { aSample ->
+        def lanes = sampleLaneMap[aSample]
+        def fileName
+        lanes.each { aLane ->
+            fileName = String.format( '%s-%s.hash_reads.tsv', aSample, aLane )
+            filesExpected.add( fileName )
+        }
+    }
+    def filesFound = []
+    inPaths.each { aPath ->
+        filesFound.add( aPath.getFileName().toString() )
+    }
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    /*
+    ** Gather input hash read tsv files (paths).
+    ** Store them in a map of lists keyed by sample name.
+    */
+    def sampleLaneHashReadTsvMap = [:]
+    samples.each { aSample ->
+        sampleLaneHashReadTsvMap[aSample] = []
+    }
+    inPaths.each { aPath ->
+        def sampleName = aPath.getFileName().toString().split( '-' )[0]
+        sampleLaneHashReadTsvMap[sampleName].add( aPath )
+    }
+
+    /*
+    ** Set up output channel tuples.
+    */
+    def outTuples = []
+    samples.each { aSample ->
+        def numHashReadTsvFiles = sampleLaneHashReadTsvMap[aSample].size()
+        def tuple = new Tuple( sampleLaneHashReadTsvMap[aSample], [ 'sample': aSample, 'numHashReadTsvFiles': numHashReadTsvFiles ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
 }
 
 
@@ -7048,14 +7417,116 @@ def experimentDashboardProcessChannelSetup( inPaths, sampleSortedNames, sampleGe
 }
 
 
-def makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( inPaths, sampleSortedNames, sampleGenomeMap ) {
-    return( inPaths )
+def makeMergedPlotFilesProcessChannelSetupCallCellsSummaryStats( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected summary stats txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = String.format( '%s-called_cells_summary.stats.txt', aSample )
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+ 
+    /*
+    ** Gather input summary stat txt files (paths).
+    ** Store them in a list.
+    */
+    def sampleSummaryStatTxtPathList = []
+    inPaths.each { aPath ->
+        sampleSummaryStatTxtPathList.add( aPath )
+    }
+ 
+    /*
+    ** Set up output channel tuple, which has all
+    ** sample txt file paths.
+    */
+    def outTuples = []
+    outTuples.add(sampleSummaryStatTxtPathList)
+ 
+    return( outTuples )
+}
+ 
+
+def makeMergedPlotFilesProcessChannelSetupMakeMergedSummaryStatsPdfPlots( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected summary stats PDF files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = String.format( '%s-called_cells_summary.pdf', aSample )
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+ 
+    /*
+    ** Gather input summary stat PDF files (paths).
+    ** Store them in a list.
+    */
+    def sampleSummaryStatPdfPathList = []
+    inPaths.each { aPath ->
+        sampleSummaryStatPdfPathList.add( aPath )
+    }
+ 
+    /*
+    ** Set up output channel tuple, which has all
+    ** sample PDF file paths.
+    */
+    def outTuples = []
+    outTuples.add(sampleSummaryStatPdfPathList)
+ 
+    return( outTuples )
 }
 
 
-def makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( inPaths, sampleSortedNames, sampleGenomeMap ) {
-    return( inPaths )
+def makeMergedPlotFilesProcessChannelSetupMakeMergedUmapPlots( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected UMAP PDF files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = String.format( '%s-umap_plot.pdf', aSample )
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+ 
+    /*
+    ** Gather input UMAP PDF files (paths).
+    ** Store them in a list.
+    */
+    def sampleUmapPdfPathList = []
+    inPaths.each { aPath ->
+        sampleUmapPdfPathList.add( aPath )
+    }
+ 
+    /*
+    ** Set up output channel tuple, which has all
+    ** sample PDF file paths.
+    */
+    def outTuples = []
+    outTuples.add(sampleUmapPdfPathList)
+    return( outTuples )
 }
-
 
 
