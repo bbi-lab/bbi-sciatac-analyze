@@ -2,7 +2,7 @@
 
 #
 # Notes:
-#   o  run in sciatac_pipeline directory
+#   o  run in bbi-sciatac-analyze directory
 #   o  the Shendure cluster has nodes with Intel cpuid_level=11, cpuid_level=13,
 #      and cpuid_level=22.
 #      The cpuid_level 22 nodes have instructions (vectorized) that are not
@@ -18,6 +18,33 @@
 #      obtained with the command
 #
 #        qlogin -l mfree=16G -l cpuid_level=11
+#
+#   o  there can be conflicts between site packages installed in the 'global'
+#      python package and the site packages installed in the virtual environment.
+#      I have seen this with the numpy and biopython packages.
+#        o  the problem appears to happen when the python module is loaded - this
+#           has the global site packages. The module must be loaded in order to
+#           build the virtual environment and again when the virtual environment
+#           is activated.
+#        o  loading the python3 module makes the module site packages available.
+#           One can see this using the 'python3 -m pip list' command.
+#        o  building the virtual environment is not affected by the python3
+#           module site-packages. One can see this by looking at the
+#           packages in src/python_env/lib/python*/site-packages.
+#        o  running packages in the activated python3 virtual environment may
+#           require that the python3 module be loaded because the executables
+#           in the python3 virtual environment may require access to those
+#           libraries. The libraries are not part of the virtual environment.
+#        o  in the case that the required libraries are dynamically linked,
+#           one can avoid having to load the python3 module by setting
+#           the LD_LIBRARY_PATH environment variable to the directory in
+#           the module path that contains the libraries. For example,
+#             export LD_LIBRARY_PATH="/net/gs/vol3/software/modules-sw/python/3.12.1/Linux/Ubuntu22.04/x86_64/:$LD_LIBRARY_PATH"
+#        o  in order to make the python_requirements.txt file using 'pip freeze',
+#           use the LD_LIBRARY_PATH rather than loading the python3 module. This
+#           prevents listing the global site packages in the python_requirements
+#           file.
+#
 #
 
 echo "The virtual environment may depend on the CPU architecture."
@@ -56,8 +83,12 @@ if [ -d $DIR/src/python_env ]; then
 fi
 
 echo 'Bulding python virtualenv...'
-# export PYTHONPATH=''
-virtualenv $DIR/src/python_env
+export PYTHONPATH=''
+
+# First, the python virtualenv
+#
+echo 'Building python3 virtualenv...'
+python3 -m venv $DIR/src/python_env
 
 if [ "$?" != 0 ]
 then

@@ -1690,7 +1690,7 @@ process callPeaksProcess {
     #                   a big peak region will have the same peak boundaries, and different
     #                   scores and peak summit positions.
     #   -n <sample_name>
-	macs2 callpeak -t ${inBed} \
+	macs3 callpeak -t ${inBed} \
 		-f BED \
 		-g ${inCallPeaksMap['macs_genome']} \
 		--nomodel \
@@ -1720,7 +1720,7 @@ process callPeaksProcess {
     -r `cat ${tmp_dir}/nextflow_run_name.txt` \
     -n \${SAMPLE_NAME} \
     -p \${PROCESS_BLOCK} \
-    -v 'python3 --version' 'macs2 --version' 'sort --version | head -1' 'cut --version | head -1' 'gzip --version | head -1' \
+    -v 'python3 --version' 'macs3 --version' 'sort --version | head -1' 'cut --version | head -1' 'gzip --version | head -1' \
     -s \${START_TIME} \
     -e \${STOP_TIME} \
     -d ${log_dir} \
@@ -1731,7 +1731,7 @@ process callPeaksProcess {
        "outXls=\"${inCallPeaksMap['sample']}-peaks.xls\"" \
        "outMacsSummits=\"\${outDir}/${inCallPeaksMap['sample']}_summits.bed\"" \
        "outSummits=\"${inCallPeaksMap['sample']}-summits.bed\"" \
-       "macs2 callpeak -t ${inBed} \
+       "macs3 callpeak -t ${inBed} \
 -f BED \
 -g ${inCallPeaksMap['macs_genome']} \
 --nomodel \
@@ -5296,7 +5296,7 @@ def combineReadCountsChannelSetupMitoDuplicateReport( inPaths, sampleSortedNames
 */
 
 /*
-** Set up channel to call peaks using MACS2.
+** Set up channel to call peaks using MACS3.
 */
 def callPeaksChannelSetup( inPaths, sampleLaneMap, sampleGenomeMap ) {
 	/*

@@ -3,9 +3,8 @@
 # cellranger-atac. The interface, etc. obviously changed to fit in with our pipeline.
 from __future__ import print_function
 import numpy as np
-import pyfasta
 import tempfile
-import pyfasta
+import pyfaidx
 import MOODS
 import MOODS.scan
 import MOODS.tools
@@ -27,7 +26,7 @@ class Motifs:
             self.all_motifs = list(motifs.parse(infile, "jaspar"))
 
         # for large sequence header, only keep the text before the first space
-        self.genome_seq = pyfasta.Fasta(fasta, key_fn=lambda x: x.split()[0])
+        self.genome_seq = pyfaidx.Fasta(fasta, one_based_attributes=False, key_function=lambda x: x.split()[0])
         self.bg = bg
 
     def scan_motif_from_bed(self, peaks_iter, tf_genes=None, out_file=None, out_format='bed', use_genome_bg=True,
@@ -68,7 +67,13 @@ class Motifs:
                          'stop': int(peak[2]),
                          'name': peak_idx,
                          'strand': peak[3]}
-            seq = self.genome_seq.sequence(bed_coord, one_based=False)
+            # original: pyfasta.Fasta access
+#            seq = self.genome_seq.sequence(bed_coord, one_based=False)
+            # pyfaidx.Fasta access
+            if(peak[3] in (-1, '-1', '-')):
+                seq = self.genome_seq[peak[0]][int(peak[1]):int(peak[2])].reverse.complement
+            else:
+                seq = self.genome_seq[peak[0]][int(peak[1]):int(peak[2])]
 
             # seq is of unicode format, need to convert to str
             results = scanner.scan(str(seq))
@@ -247,7 +252,7 @@ def peak_reader(peaks, select=[]):
 def get_peak_GC_counts(peak, genome_fa, counts=True):
     '''Get GC% in base seq in a peak and (optionally) nucleotide counts'''
 
-    seq = genome_fa[peak.chrom][peak.start:peak.end].upper()
+    seq = str(genome_fa[peak.chrom][peak.start:peak.end]).upper()
     base_counter = {}
     base_counter['A'] = seq.count('A') + seq.count('a')
     base_counter['G'] = seq.count('G') + seq.count('g')
@@ -303,7 +308,7 @@ def get_GCbinned_peaks_and_bg(peaks, genome_fa, GCbins, pseudocount=1.0):
     return GCdict
 
 def load_gc_bins(fasta, peaks):
-    genome_fa = pyfasta.Fasta(fasta, key_fn=lambda x: x.split()[0])
+    genome_fa = pyfaidx.Fasta(fasta, one_based_attributes=True, key_function=lambda x: x.split()[0])
 
     # get peak-GC distribution
     GCdist = [get_peak_GC_counts(peak, genome_fa, counts=False) for peak in peak_reader(peaks)]
