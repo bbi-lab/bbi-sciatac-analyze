@@ -922,7 +922,9 @@ process runHashReadAggregationProcess {
     set file( inHashReadsTsvs ), hashReadAggregationMap from runHashReadAggregationInChannel
 
     output:
-    file( "*" ) into runHashReadAggregationOutChannel
+    path( "*" ) into runHashReadAggregationOutChannel
+    path( "*-hashTable.out") into runHashReadAggregationOutChannelHashTable
+    path( "*-hashUMIs.per.cell") into runHashReadAggregationOutChannelHashUMIsPerCell
 
     when:
         sciplex_flag
@@ -2399,7 +2401,7 @@ if( params.reads_threshold != null ) {
 	readsThresholdParameter = "--reads_threshold ${params.reads_threshold}"
 }
 else {
-readsThresholdParameter = ""
+    readsThresholdParameter = ""
 }
 
 makeCountReportsOutChannelCopy01
@@ -2482,6 +2484,65 @@ process callCellsProcess {
 
 	"""
 }
+
+
+/*
+** ================================================================================
+** Make hash read statistics plots.
+** ================================================================================
+*/
+
+callCellsOutChannelCalledCellsCounts
+    .toList()
+    .flatMap { makeHashReadStatsSetupCalledCellCounts( it, sampleSortedNames ) }
+    .set { makeHashReadStatsInChannelCalledCellsCounts }
+
+runHashReadAggregationOutChannelHashTable
+    .toList()
+    .flatMap { makeHashReadStatsSetupHashTable( it, sampleSortedNames ) }
+    .set { makeHashReadStatsInChannelHashTable }
+
+runHashReadAggregationOutChannelHashUMIsPerCell
+    .toList()
+    .flatMap { makeHashReadStatsSetupHashUMIsPerCell( it, sampleSortedNames ) }
+    .set { makeHashReadStatsInChannelHashUMIsPerCell }
+
+process makeHashReadStats {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*.pdf", mode: 'copy'
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*.RDS", mode: 'copy'
+
+    input:
+    tuple path(cellCounts), inHashReadStatsMap from makeHashReadStatsInChannelCalledCellsCounts
+    tuple path(hashTable), inHashTableMap from makeHashReadStatsInChannelHashTable
+    tuple path(umisPerCell), inUMIsPerCellMap from makeHashReadStatsInChannelHashUMIsPerCell
+
+    output:
+    path( "*.pdf" ) into runMakeHashReadStatsOutChannelPlots
+    path( "*.RDS" ) into runMakeHashReadStatsOutChannelRDS
+
+    when:
+        sciplex_flag
+
+    script:
+    """
+    # bash watch for errors
+    set -ueo pipefail
+
+    Rscript ${script_dir}/hash_read_processing.R --sample_name="${inHashReadStatsMap['sample']}" \
+--called_cells_file="${inHashReadStatsMap['sample']}-called_cells.txt" \
+--hash_table_file="${inHashReadStatsMap['sample']}-hashTable.out" \
+--hash_umis_per_cell_file="${inHashReadStatsMap['sample']}-hashUMIs.per.cell" \
+--hashes_counter_histogram="${inHashReadStatsMap['sample']}-histogramHashesCounter.pdf" \
+--total_hashes_captured_histogram="${inHashReadStatsMap['sample']}-totalHashesCaptured.pdf" \
+--top_to_second_hash_ratio_histogram="${inHashReadStatsMap['sample']}-topToSecondHashRatioLog10.pdf" \
+--normalized_top_to_second_hash_ratio_histogram="${inHashReadStatsMap['sample']}-topToSecondHashRatioNormLog10.pdf" \
+--merged_hash_passing_histogram="${inHashReadStatsMap['sample']}-mergeHashPassingHash.pdf" \
+--merged_hash_info="${inHashReadStatsMap['sample']}-mergedHashInfo.RDS"
+    """
+}
+
 
 callCellsOutChannelCalledCellsWhitelist
     .into { callCellsOutChannelCalledCellsWhitelistCopy01;
@@ -6046,6 +6107,107 @@ def callCellsChannelSetup( inPaths, sampleSortedNames ) {
     def outTuples = []
     sampleSortedNames.each { aSample ->
         def inTxt = aSample + '-count_report.txt'
+        def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+/*
+** ================================================================================
+** makeHashReadStats channel setup functions.
+** ================================================================================
+*/
+
+/*
+** Set up channel for called cells.
+*/
+def makeHashReadStatsSetupCalledCellCounts( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-called_cells.txt'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inTxt = aSample + '-called_cells.txt'
+        def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+/*
+** Set up channel for hash tables.
+*/
+def makeHashReadStatsSetupHashTable( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-hashTable.out'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inTxt = aSample + '-hashTable.out'
+        def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+/*
+** Set up channel for hash UMIs per cell.
+*/
+def makeHashReadStatsSetupHashUMIsPerCell( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected txt files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-hashUMIs.per.cell'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inTxt = aSample + '-hashUMIs.per.cell'
         def tuple = new Tuple( fileMap[inTxt], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
