@@ -892,7 +892,6 @@ process runHashReadFilterProcess {
     -d ${log_dir} \
     -c "outHashReadsTsv=\"${hashReadFilterMap['sample']}-${hashReadFilterMap['lane']}.hash_reads.tsv\"" \
        "sciatac_find_hash_reads -1 ${hashReadFilterMap['fastq1']} -2 ${hashReadFilterMap['fastq2']} -h ${hash_file_path} -o \${outHashReadsTsv}"
-
     """
 }
 
@@ -2520,7 +2519,7 @@ process makeHashReadStats {
 
     output:
     path( "*.pdf" ) into runMakeHashReadStatsOutChannelPlots
-    path( "*.RDS" ) into runMakeHashReadStatsOutChannelRDS
+    path( "*.RDS" ) into runMakeHashReadStatsOutChannelRds
 
     when:
         sciplex_flag
@@ -2529,6 +2528,10 @@ process makeHashReadStats {
     """
     # bash watch for errors
     set -ueo pipefail
+
+    PROCESS_BLOCK='makeHashReadStats'
+    SAMPLE_NAME="${inHashReadStatsMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
 
     Rscript ${script_dir}/hash_read_processing.R --sample_name="${inHashReadStatsMap['sample']}" \
 --called_cells_file="${inHashReadStatsMap['sample']}-called_cells.txt" \
@@ -2540,6 +2543,29 @@ process makeHashReadStats {
 --normalized_top_to_second_hash_ratio_histogram="${inHashReadStatsMap['sample']}-topToSecondHashRatioNormLog10.pdf" \
 --merged_hash_passing_histogram="${inHashReadStatsMap['sample']}-mergeHashPassingHash.pdf" \
 --merged_hash_info="${inHashReadStatsMap['sample']}-mergedHashInfo.RDS"
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'R --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir} \
+    -c "Rscript ${script_dir}/hash_read_processing.R \
+--sample_name=\"${inHashReadStatsMap['sample']}\" \
+--called_cells_file=\"${inHashReadStatsMap['sample']}-called_cells.txt\" \
+--hash_table_file=\"${inHashReadStatsMap['sample']}-hashTable.out\" \
+--hash_umis_per_cell_file=\"${inHashReadStatsMap['sample']}-hashUMIs.per.cell\" \
+--hashes_counter_histogram=\"${inHashReadStatsMap['sample']}-histogramHashesCounter.pdf\" \
+--total_hashes_captured_histogram=\"${inHashReadStatsMap['sample']}-totalHashesCaptured.pdf\" \
+--top_to_second_hash_ratio_histogram=\"${inHashReadStatsMap['sample']}-topToSecondHashRatioLog10.pdf\" \
+--normalized_top_to_second_hash_ratio_histogram=\"${inHashReadStatsMap['sample']}-topToSecondHashRatioNormLog10.pdf\" \
+--merged_hash_passing_histogram=\"${inHashReadStatsMap['sample']}-mergeHashPassingHash.pdf\" \
+--merged_hash_info=\"${inHashReadStatsMap['sample']}-mergedHashInfo.RDS\""
+
     """
 }
 
@@ -3710,6 +3736,71 @@ process makeReducedDimensionMatrixProcess {
 
     touch stop_flag
 	"""
+}
+
+
+/*
+** ================================================================================
+** Add hash read information to CDS, if this is a sci-plex experiment.
+** ================================================================================
+*/
+
+/*
+**  channel with merged_hash_info from makeHashReadStats: runMakeHashReadStatsOutChannelRds
+**  channel with Monocle3 CDS from makeReducedDimensionMatrixProcess: makeReducedDimensionMatrixOutChannelMonocle3Cds
+*/
+runMakeHashReadStatsOutChannelRds
+    .toList()
+    .flatMap { addHashReadInfoToCdsSetupHashInfoRds( it, sampleSortedNames ) }
+    .set { addHashReadInfoToCdsInChannelHashInfoRds }
+
+makeReducedDimensionMatrixOutChannelMonocle3Cds
+    .toList()
+    .flatMap { addHashReadInfoToCdsSetupMonocleCds( it, sampleSortedNames ) }
+    .set { addHashReadInfoToCdsInChannelCds }
+
+process addHashReadInfoToCdsProcess {
+    cache 'lenient'
+    errorStrategy onError
+    publishDir path: "${analyze_dir}", saveAs: { qualifyFilename( it, "hash_reads" ) }, pattern: "*-monocle3_cds_with_hash_info.RDS", mode: 'copy'
+
+
+    input:
+    tuple file( inHashRdsFile ), inAddHashReadInfoMap from addHashReadInfoToCdsInChannelHashInfoRds
+    tuple file( inMonocle3CdsFile ), inAddHashReadInfoMap from addHashReadInfoToCdsInChannelCds
+
+    output:
+    file( "*" ) into addHashReadInfoToCdsHashInfoCdsOutChannel
+
+    when:
+        sciplex_flag
+
+    script:
+    """
+    # bash watch for errors
+    set -ueo pipefail
+
+    PROCESS_BLOCK='addHashReadInfoToCdsProcess'
+    SAMPLE_NAME="${inAddHashReadInfoMap['sample']}"
+    START_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    Rscript ${script_dir}/add_hash_info_to_cds.R --in_cds_name ${inAddHashReadInfoMap['sample']}-monocle3_cds.rds --in_hash_info_rds_name ${inAddHashReadInfoMap['sample']}-mergedHashInfo.RDS --out_cds_name ${inAddHashReadInfoMap['sample']}-monocle3_cds_with_hash_info.RDS
+
+    STOP_TIME=`date '+%Y%m%d:%H%M%S'`
+
+    $script_dir/pipeline_logger.py \
+    -r `cat ${tmp_dir}/nextflow_run_name.txt` \
+    -n \${SAMPLE_NAME} \
+    -p \${PROCESS_BLOCK} \
+    -v 'R --version | head -1' \
+    -s \${START_TIME} \
+    -e \${STOP_TIME} \
+    -d ${log_dir} \
+    -c "Rscript ${script_dir}/add_hash_info_to_cds.R \
+--in_cds_name ${inAddHashReadInfoMap['sample']}-monocle3_cds.rds \
+--in_hash_info_rds_name ${inAddHashReadInfoMap['sample']}-mergedHashInfo.RDS \
+--out_cds_name ${inAddHashReadInfoMap['sample']}-monocle3_cds_with_hash_info.RDS"
+    """
 }
 
 
@@ -7567,6 +7658,70 @@ def makeReducedDimensionMatrixChannelSetupCombinedReadCounts( inPaths, sampleSor
     sampleSortedNames.each { aSample ->
         def inCombinedDuplicateReport = aSample + '-combined.duplicate_report.txt'
         def tuple = new Tuple( fileMap[inCombinedDuplicateReport], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+/*
+**
+*/
+def addHashReadInfoToCdsSetupHashInfoRds( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected RDS files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-mergedHashInfo.RDS'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inRds = aSample + '-mergedHashInfo.RDS'
+        def tuple = new Tuple( fileMap[inRds], [ 'sample': aSample ] )
+        outTuples.add( tuple )
+    }
+
+    return( outTuples )
+}
+
+
+/*
+**
+*/
+def addHashReadInfoToCdsSetupMonocleCds( inPaths, sampleSortedNames ) {
+    /*
+    ** Check for expected CDS files.
+    */
+    def filesExpected = []
+    sampleSortedNames.each { aSample ->
+        def fileName = aSample + '-monocle3_cds.rds'
+        filesExpected.add( fileName )
+    }
+    def fileMap = getFileMap( inPaths )
+    def filesFound = fileMap.keySet()
+    filesExpected.each { aFile ->
+        if( !( aFile in filesFound ) ) {
+            printErr( "Error: missing expected file \'${aFile}\' in channel" )
+            System.exit( -1 )
+        }
+    }
+
+    def outTuples = []
+    sampleSortedNames.each { aSample ->
+        def inRds = aSample + '-monocle3_cds.rds'
+        def tuple = new Tuple( fileMap[inRds], [ 'sample': aSample ] )
         outTuples.add( tuple )
     }
 

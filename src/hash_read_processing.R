@@ -152,24 +152,27 @@ BarchartPassingHash <- function(hashTableTopToSecond, hashTableTopToSecondNorm, 
 }
 
 
+#
+# Note: call createCDSWithHash later -- after making the CDS!
+#
 # Make some QC plots that I like and an R .RDS file called mergedHashInfo.RDS which has the necessary info
-createCDSWithHash <- function(input_cds_file="monocle3_cds.rds", input_hash_file="mergedHashInfo.RDS", prefixName, output_cds_file="mergedHashInfo.RDS") {
-    # Load the cds object of peaks by cells
-    timeseriesPilotFull <- readRDS(input_cds_file)
-    # Load the hash dataframe
-    mergedHashInfo <- readRDS(input_hash_file)
-    rownames(mergedHashInfo) <- mergedHashInfo$CellID
-
-    # Incorporate the hash information as columns
-    mergedColData <- merge(colData(timeseriesPilotFull), mergedHashInfo, by = 0, all = FALSE)
-    rownames(mergedColData) <- mergedColData$cell
-    cdsObjWithHash <- timeseriesPilotFull[,rownames(colData(timeseriesPilotFull)) %in% rownames(mergedColData)]
-    # The rownames match between the two objects now
-    # rownames(mergedColData) == rownames(colData(mergedSetOfColumns))
-    colData(cdsObjWithHash) <- mergedColData
-    saveRDS(cdsObjWithHash)
-    return(0)
-}
+# createCDSWithHash <- function(input_cds_file="monocle3_cds.rds", input_hash_file="mergedHashInfo.RDS", prefixName, output_cds_file="mergedHashInfo.RDS") {
+#     # Load the cds object of peaks by cells
+#     timeseriesPilotFull <- readRDS(input_cds_file)
+#     # Load the hash dataframe
+#     mergedHashInfo <- readRDS(input_hash_file)
+#     rownames(mergedHashInfo) <- mergedHashInfo$CellID
+# 
+#     # Incorporate the hash information as columns
+#     mergedColData <- merge(colData(timeseriesPilotFull), mergedHashInfo, by = 0, all = FALSE)
+#     rownames(mergedColData) <- mergedColData$cell
+#     cdsObjWithHash <- timeseriesPilotFull[,rownames(colData(timeseriesPilotFull)) %in% rownames(mergedColData)]
+#     # The rownames match between the two objects now
+#     # rownames(mergedColData) == rownames(colData(mergedSetOfColumns))
+#     colData(cdsObjWithHash) <- mergedColData
+#     saveRDS(cdsObjWithHash)
+#     return(0)
+# }
 
 
 ######################################################################################
